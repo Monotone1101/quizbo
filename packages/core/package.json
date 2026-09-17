@@ -1,0 +1,14 @@
+{
+  "name": "@quizbo/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure, I/O-free domain logic: ELO, matchmaking bands, battle scoring, mastery, scheduler, extraction parsing.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  }
+}

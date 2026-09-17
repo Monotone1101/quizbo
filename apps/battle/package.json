@@ -1,0 +1,24 @@
+{
+  "name": "@quizbo/battle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Real-time 1v1 battle service (Socket.io). Runs as its own long-lived process — not on serverless.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "sparring": "tsx scripts/sparring.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@quizbo/core": "*",
+    "@quizbo/db": "*",
+    "jose": "^6.2.12",
+    "socket.io": "^4.8.3",
+    "tsx": "^4.23.13"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

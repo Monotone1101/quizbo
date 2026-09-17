@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /play
+Disallow: /battles
+Disallow: /planner
+Disallow: /api

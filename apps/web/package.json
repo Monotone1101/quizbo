@@ -1,0 +1,40 @@
+{
+  "name": "@quizbo/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Next.js web app: dashboard, battles UI, planner, coach, auth and non-realtime API routes.",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "next typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@auth/prisma-adapter": "^2.11.3",
+    "@next/env": "^16.3.4",
+    "@quizbo/ai": "*",
+    "@quizbo/core": "*",
+    "@quizbo/db": "*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "jose": "^6.2.12",
+    "lucide-react": "^1.45.0",
+    "next": "16.3.4",
+    "next-auth": "5.0.0-beta.32",
+    "radix-ui": "^1.6.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "socket.io-client": "^4.8.3",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3"
+  }
+}

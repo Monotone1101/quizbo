@@ -1,0 +1,20 @@
+{
+  "name": "@quizbo/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Background jobs: offline question generation + validation pipeline and nightly planner re-optimisation (BullMQ).",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "pipeline": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@quizbo/ai": "*",
+    "@quizbo/core": "*",
+    "@quizbo/db": "*",
+    "bullmq": "^6.3.4",
+    "tsx": "^4.23.13"
+  }
+}

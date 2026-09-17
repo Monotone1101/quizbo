@@ -1,0 +1,434 @@
+// Quizbo data model.
+// Mirrors product-spec/architecture.md §2. Anything beyond that document is marked ADDITION and is
+// explained in ASSUMPTIONS.md — the connection string lives in prisma.config.ts (Prisma 7).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MotivationStyle {
+  COMPETITIVE
+  PROGRESS
+  REMINDER
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum QuestionSource {
+  SEED
+  GENERATED
+}
+
+enum BattleMode {
+  INVITE
+  MATCHMAKING
+}
+
+enum BattleEndReason {
+  HP_DEPLETED
+  MAX_QUESTIONS
+  OPPONENT_FORFEIT
+}
+
+enum BattleResult {
+  WON
+  LOST
+  DRAW
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum DateConfidence {
+  EXPLICIT
+  INFERRED
+  MISSING
+}
+
+enum SessionStatus {
+  PENDING
+  DONE
+  SKIPPED
+}
+
+enum SessionKind {
+  REVIEW
+  BATTLE
+}
+
+enum ChatChannel {
+  COACH
+  PLANNER
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+}
+
+enum ResourceOrigin {
+  CURATED
+  AI
+}
+
+// ─── Users & auth ──────────────────────────────────────────────────────────────
+
+model User {
+  id                String           @id @default(cuid())
+  name              String?
+  email             String?          @unique
+  emailVerified     DateTime?
+  image             String?
+  // Onboarding (features.md §2.1)
+  motivationStyle   MotivationStyle?
+  dailyStudyMinutes Int              @default(60)
+  examGoal          String? // ADDITION: onboarding answer 1
+  confidence        Int? // ADDITION: onboarding answer 2 (1–5)
+  timezone          String           @default("UTC") // ADDITION: local dates for streaks and planner
+  onboardedAt       DateTime? // ADDITION
+  isDemo            Boolean          @default(false) // ADDITION: created through demo sign-in
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  eloRatings    EloRating[]
+  mastery       Mastery[]
+  battlesWon    Battle[]       @relation("BattleWinner")
+  battlePlayers BattlePlayer[]
+  battleAnswers BattleAnswer[]
+  exams         Exam[]
+  notes         Note[]
+  chatMessages  ChatMessage[]
+
+  @@map("users")
+}
+
+// Auth.js adapter models (ADDITION — required by NextAuth's Prisma adapter).
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─── Curriculum & question bank ────────────────────────────────────────────────
+
+model Subject {
+  id        String   @id @default(cuid())
+  slug      String   @unique // ADDITION
+  name      String
+  level     String? // ADDITION: "Class 12"
+  createdAt DateTime @default(now())
+
+  topics     Topic[]
+  eloRatings EloRating[]
+  battles    Battle[]
+  exams      Exam[]
+  notes      Note[]
+
+  @@map("subjects")
+}
+
+model Topic {
+  id        String   @id @default(cuid())
+  subjectId String
+  name      String
+  unit      String? // ADDITION: chapter grouping, so "optics" in planner chat resolves to its sub-topics
+  sortOrder Int      @default(0) // ADDITION
+  createdAt DateTime @default(now())
+
+  subject       Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questions     Question[]
+  mastery       Mastery[]
+  battles       Battle[]
+  battleAnswers BattleAnswer[]
+  examTopics    ExamTopic[]
+  studySessions StudySession[]
+  notes         Note[]
+  resources     Resource[]
+
+  @@unique([subjectId, name])
+  @@map("topics")
+}
+
+model Question {
+  id              String         @id @default(cuid())
+  topicId         String
+  text            String
+  options         String[] // ADDITION: exactly four options
+  correctIndex    Int // ADDITION
+  rationale       String // ADDITION: shown on the review page after a battle
+  difficulty      Difficulty
+  // Battles only ever serve `validated = true` (agent.md: never serve live-generated questions).
+  validated       Boolean        @default(false)
+  source          QuestionSource @default(GENERATED) // ADDITION
+  validationNotes String? // ADDITION: reviewer verdict / issues
+  validatedAt     DateTime? // ADDITION
+  createdAt       DateTime       @default(now())
+
+  topic   Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  answers BattleAnswer[]
+
+  @@index([topicId, validated])
+  @@map("questions")
+}
+
+// ─── Competition & knowledge (kept separate on purpose) ────────────────────────
+
+model EloRating {
+  userId        String
+  subjectId     String
+  rating        Int      @default(1200)
+  matchesPlayed Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, subjectId])
+  @@index([subjectId, rating])
+  @@map("elo_ratings")
+}
+
+model Mastery {
+  userId      String
+  topicId     String
+  score       Float
+  attempts    Int      @default(0) // ADDITION: answers aggregated so far
+  lastUpdated DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([userId, topicId])
+  @@map("mastery")
+}
+
+// ─── Battles ───────────────────────────────────────────────────────────────────
+
+model Battle {
+  id            String          @id @default(cuid())
+  number        Int             @unique @default(autoincrement()) // ADDITION: "Battle 0284"
+  subjectId     String
+  topicId       String? // ADDITION: set for topic-scoped rematches
+  winnerId      String?
+  mode          BattleMode // ADDITION
+  endReason     BattleEndReason // ADDITION: forfeits are distinguishable from played-out wins
+  roomCode      String // ADDITION
+  questionCount Int // ADDITION
+  playedAt      DateTime        @default(now())
+
+  subject Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topic   Topic?         @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  winner  User?          @relation("BattleWinner", fields: [winnerId], references: [id], onDelete: SetNull)
+  players BattlePlayer[]
+  answers BattleAnswer[]
+
+  @@index([playedAt])
+  @@map("battles")
+}
+
+// ADDITION: one row per player per battle. BATTLE stores only the winner, but the dashboard needs
+// each player's rating change, HP and best streak, and the breakdown caches its analysis here.
+model BattlePlayer {
+  battleId      String
+  userId        String
+  displayName   String
+  result        BattleResult
+  eloBefore     Int
+  eloAfter      Int
+  eloDelta      Int
+  finalHp       Int
+  correct       Int
+  answered      Int
+  bestStreak    Int
+  avgAnswerMs   Int?
+  analysis      String?
+  analysisModel String?
+  createdAt     DateTime     @default(now())
+
+  battle Battle @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([battleId, userId])
+  @@index([userId, createdAt])
+  @@map("battle_players")
+}
+
+model BattleAnswer {
+  id            String   @id @default(cuid())
+  battleId      String
+  userId        String
+  questionId    String
+  topicId       String
+  round         Int // ADDITION
+  selectedIndex Int? // ADDITION: null when the timer ran out
+  correct       Boolean
+  timeTakenMs   Int
+  createdAt     DateTime @default(now())
+
+  battle   Battle   @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  topic    Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([battleId, userId])
+  @@index([userId, topicId])
+  @@map("battle_answers")
+}
+
+// ─── Planner ───────────────────────────────────────────────────────────────────
+
+model Exam {
+  id             String         @id @default(cuid())
+  userId         String
+  subjectId      String
+  name           String
+  examDate       DateTime       @db.Date
+  priority       Priority
+  dateConfidence DateConfidence @default(EXPLICIT) // ADDITION: what the student confirmed from
+  plannedAt      DateTime? // ADDITION: last scheduler run, to spot stale plans
+  createdAt      DateTime       @default(now())
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject  Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topics   ExamTopic[]
+  sessions StudySession[]
+
+  @@index([userId, examDate])
+  @@map("exams")
+}
+
+// ADDITION: the topics an exam covers — the scheduler's input list.
+model ExamTopic {
+  examId  String
+  topicId String
+
+  exam  Exam  @relation(fields: [examId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([examId, topicId])
+  @@map("exam_topics")
+}
+
+model StudySession {
+  id              String        @id @default(cuid())
+  examId          String
+  topicId         String
+  scheduledDate   DateTime      @db.Date
+  durationMinutes Int
+  status          SessionStatus @default(PENDING)
+  kind            SessionKind   @default(REVIEW) // ADDITION: battle check-in vs review block
+  completedAt     DateTime? // ADDITION
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  exam  Exam  @relation(fields: [examId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@index([examId, status])
+  @@index([scheduledDate])
+  @@map("study_sessions")
+}
+
+// ─── Coach ─────────────────────────────────────────────────────────────────────
+
+// ADDITION: quick notes the coach drafted and the student chose to save.
+model Note {
+  id        String   @id @default(cuid())
+  userId    String
+  subjectId String?
+  topicId   String?
+  kicker    String
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  topic   Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("notes")
+}
+
+// ADDITION: coach and planner-intake threads (extraction drafts live in `payload`, never in EXAM).
+model ChatMessage {
+  id        String      @id @default(cuid())
+  userId    String
+  channel   ChatChannel
+  role      ChatRole
+  content   String
+  payload   Json?
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel, createdAt])
+  @@map("chat_messages")
+}
+
+// ADDITION: study resources shown in the sidebar for a student's weakest topics.
+model Resource {
+  id          String         @id @default(cuid())
+  topicId     String
+  title       String
+  url         String
+  sourceLabel String
+  origin      ResourceOrigin @default(CURATED)
+  createdAt   DateTime       @default(now())
+
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, url])
+  @@map("resources")
+}

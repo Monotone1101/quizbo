@@ -1,0 +1,33 @@
+{
+  "name": "@quizbo/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Prisma schema, migrations, seed data and the shared Prisma client.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "postinstall": "prisma generate",
+    "generate": "prisma generate",
+    "build": "prisma generate",
+    "local": "node scripts/local-db.mjs",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "seed": "tsx prisma/seed.ts",
+    "resources:check": "tsx scripts/check-resources.ts",
+    "studio": "prisma studio",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "@quizbo/core": "*",
+    "dotenv": "^17.4.2",
+    "pg": "^8.23.0",
+    "prisma": "7.10.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

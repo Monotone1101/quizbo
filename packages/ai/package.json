@@ -1,0 +1,20 @@
+{
+  "name": "@quizbo/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Narrowly scoped Gemini calls (question generation, validation, analysis, planner extraction, coach) with documented prompts and schemas.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "smoke": "tsx scripts/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@google/genai": "^2.22.0",
+    "@quizbo/core": "*",
+    "zod": "^4.6.2"
+  }
+}

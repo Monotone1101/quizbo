@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: quizbo
+          POSTGRES_PASSWORD: quizbo
+          POSTGRES_DB: quizbo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U quizbo"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://quizbo:quizbo@localhost:5432/quizbo
+      AUTH_SECRET: ci-only-secret-not-for-production-use-000000
+      BATTLE_JWT_SECRET: ci-only-battle-secret-not-for-production
+      NEXT_PUBLIC_BATTLE_URL: http://localhost:4000
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit + integration tests
+        run: npm test
+      - name: Migrations apply cleanly and seed is idempotent
+        run: |
+          npm run db:deploy
+          npm run db:seed
+          npm run db:seed
+      - name: Build web
+        run: npm run build -w @quizbo/web

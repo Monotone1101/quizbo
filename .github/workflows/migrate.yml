@@ -1,0 +1,28 @@
+name: Migrate production database
+
+# Run manually after merging schema changes (Vercel deploys don't run migrations).
+# Requires the repository secret PRODUCTION_DATABASE_URL.
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Also run the idempotent curriculum seed"
+        type: boolean
+        default: true
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:deploy
+      - if: ${{ inputs.seed }}
+        run: npm run db:seed

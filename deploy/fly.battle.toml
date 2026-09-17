@@ -1,0 +1,40 @@
+# Fly.io config for the battle service. Deploy from the repo root:
+#   fly launch --no-deploy --copy-config --config deploy/fly.battle.toml
+#   fly secrets set DATABASE_URL=... BATTLE_JWT_SECRET=... WEB_ORIGIN=https://your-web-app --config deploy/fly.battle.toml
+#   fly deploy --config deploy/fly.battle.toml
+#   fly scale count 1 --config deploy/fly.battle.toml   # rooms live in memory: exactly one machine
+
+app = "quizbo-battle"
+primary_region = "bom"
+
+[build]
+  dockerfile = "../Dockerfile"
+  build-target = "battle"
+
+[env]
+  PORT = "4000"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  # Long-lived sockets: never stop the machine under an active battle.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 800
+    hard_limit = 1000
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

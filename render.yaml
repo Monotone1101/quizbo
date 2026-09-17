@@ -1,0 +1,83 @@
+# Render Blueprint — the whole stack on Render in one click (Dashboard → New → Blueprint).
+# Before the first deploy, fill the `sync: false` values when Render prompts:
+#   NEXT_PUBLIC_BATTLE_URL  https://quizbo-battle.onrender.com   (read at web build time)
+#   WEB_ORIGIN              https://quizbo-web.onrender.com
+#   GEMINI_API_KEY          your Google AI Studio key (optional — the app degrades gracefully without it)
+# See DEPLOY.md for custom domains and Google/email sign-in.
+
+envVarGroups:
+  - name: quizbo-shared
+    envVars:
+      - key: BATTLE_JWT_SECRET
+        generateValue: true
+      - key: NODE_VERSION
+        value: "22"
+      - key: QUIZBO_GEMINI_MODEL
+        value: gemini-3.8-flash
+
+databases:
+  - name: quizbo-db
+    databaseName: quizbo
+    user: quizbo
+    plan: basic-256mb
+
+services:
+  - type: keyvalue
+    name: quizbo-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  - type: web
+    name: quizbo-web
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build -w @quizbo/web
+    preDeployCommand: npm run migrate:deploy -w @quizbo/db && npm run seed -w @quizbo/db
+    startCommand: npm run start -w @quizbo/web
+    healthCheckPath: /signin
+    envVars:
+      - fromGroup: quizbo-shared
+      - key: DATABASE_URL
+        fromDatabase: { name: quizbo-db, property: connectionString }
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: AUTH_DEMO_LOGIN
+        value: "true"
+      - key: NEXT_PUBLIC_BATTLE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  - type: web
+    name: quizbo-battle
+    runtime: node
+    plan: starter
+    # One instance only: room state is in memory until the Redis-backed rooms follow-up (stack.md).
+    numInstances: 1
+    buildCommand: npm ci
+    startCommand: npm run start -w @quizbo/battle
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: quizbo-shared
+      - key: DATABASE_URL
+        fromDatabase: { name: quizbo-db, property: connectionString }
+      - key: WEB_ORIGIN
+        sync: false
+
+  - type: worker
+    name: quizbo-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm run start -w @quizbo/worker
+    envVars:
+      - fromGroup: quizbo-shared
+      - key: DATABASE_URL
+        fromDatabase: { name: quizbo-db, property: connectionString }
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: quizbo-redis, property: connectionString }
+      - key: GEMINI_API_KEY
+        sync: false

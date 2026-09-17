@@ -1,0 +1,89 @@
+# Self-hosted Quizbo: Postgres, Redis, migrations, web, battle service and worker.
+#   1. cp .env.example .env and set AUTH_SECRET, BATTLE_JWT_SECRET (and GEMINI_API_KEY for AI features)
+#   2. docker compose up --build
+#   3. open http://localhost:3000
+# Put a TLS-terminating reverse proxy in front for anything public, and rebuild `web` with
+# NEXT_PUBLIC_BATTLE_URL pointing at the battle service's public URL.
+
+x-shared-env: &shared-env
+  DATABASE_URL: postgresql://quizbo:quizbo@postgres:5432/quizbo
+  BATTLE_JWT_SECRET: ${BATTLE_JWT_SECRET:?Set BATTLE_JWT_SECRET in .env}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  QUIZBO_GEMINI_MODEL: ${QUIZBO_GEMINI_MODEL:-gemini-3.8-flash}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: quizbo
+      POSTGRES_PASSWORD: quizbo
+      POSTGRES_DB: quizbo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quizbo -d quizbo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment:
+      <<: *shared-env
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  battle:
+    build: { context: ., target: battle }
+    environment:
+      <<: *shared-env
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+    ports: ["4000:4000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_BATTLE_URL: ${NEXT_PUBLIC_BATTLE_URL:-http://localhost:4000}
+        NEXT_PUBLIC_FISTS_VIDEO_URL: ${NEXT_PUBLIC_FISTS_VIDEO_URL:-}
+        NEXT_PUBLIC_FISTS_POSTER_URL: ${NEXT_PUBLIC_FISTS_POSTER_URL:-}
+    environment:
+      <<: *shared-env
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env}
+      AUTH_TRUST_HOST: "true"
+      AUTH_DEMO_LOGIN: ${AUTH_DEMO_LOGIN:-true}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+      AUTH_RESEND_KEY: ${AUTH_RESEND_KEY:-}
+      AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM:-}
+      NEXT_PUBLIC_BATTLE_URL: ${NEXT_PUBLIC_BATTLE_URL:-http://localhost:4000}
+      BATTLE_INTERNAL_URL: http://battle:4000
+    ports: ["3000:3000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  worker:
+    build: { context: ., target: worker }
+    environment:
+      <<: *shared-env
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

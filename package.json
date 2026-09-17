@@ -1,0 +1,44 @@
+{
+  "name": "quizbo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Quizbo — personalised AI study app with real-time 1v1 MCQ battles and a conversational planner.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "predev": "node packages/db/scripts/local-db.mjs --ensure",
+    "dev": "turbo run dev --filter=@quizbo/web --filter=@quizbo/battle",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "npm run generate -w @quizbo/db",
+    "db:local": "npm run local -w @quizbo/db",
+    "db:migrate": "npm run migrate:dev -w @quizbo/db",
+    "db:deploy": "npm run migrate:deploy -w @quizbo/db",
+    "db:seed": "npm run seed -w @quizbo/db",
+    "questions:pipeline": "npm run pipeline -w @quizbo/worker",
+    "start:web": "npm run start -w @quizbo/web",
+    "start:battle": "npm run start -w @quizbo/battle",
+    "start:worker": "npm run start -w @quizbo/worker"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "turbo": "^2.10.12",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "esbuild@0.28.2": true,
+    "msgpackr-extract@3.0.4": true
+  }
+}

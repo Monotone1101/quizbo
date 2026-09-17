@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# builds
+.next/
+dist/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# prisma generated client
+packages/db/src/generated/
+
+# env
+.env
+.env.*
+!.env.example
+
+# misc
+coverage/
+*.log
+.DS_Store
+.vercel/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# local Claude Code state
+.claude/worktrees/
+.claude/settings.local.json
