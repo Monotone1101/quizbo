@@ -24,6 +24,7 @@ export function MatchmakingScreen({
   me,
   scopeLabel,
   scopes = [],
+  scope = null,
   queuing = true,
   onScopeChange,
   onStart,
@@ -34,6 +35,8 @@ export function MatchmakingScreen({
   me: { name: string; rating: number; rank: number; streak: number };
   scopeLabel: string | null;
   scopes?: ScopeSubject[];
+  /** The queue the player has chosen, which is not the one they are in until they start searching. */
+  scope?: { subjectId: string; topicId: string | null } | null;
   /** False while the player is still choosing a queue (the setup step before searching). */
   queuing?: boolean;
   onScopeChange?: (subjectId: string, topicId: string | null) => void;
@@ -60,12 +63,10 @@ export function MatchmakingScreen({
   const searching = state.phase === "connecting" || state.phase === "queue" || state.phase === "waiting";
   const shareUrl = state.roomCode && typeof window !== "undefined" ? `${window.location.origin}/play/room/${state.roomCode}` : null;
 
-  // The queue you are actually in (the server echoes it back in queue:status), falling back to what
-  // the page asked for before the first status arrives.
-  const queueIntent = intent.kind === "queue" ? intent : null;
-  const activeSubject = scopes.find((s) => s.id === (state.queue?.subjectId ?? queueIntent?.subjectId)) ?? null;
-  const activeTopicId = state.queue?.topicId ?? queueIntent?.topicId ?? null;
-  const activeTopic = activeSubject?.topics.find((t) => t.id === activeTopicId) ?? null;
+  // Rendered from the chosen scope rather than the live queue: before searching there is no queue
+  // to read, and the picker has to show the choice as soon as it is made.
+  const activeSubject = scopes.find((option) => option.id === scope?.subjectId) ?? null;
+  const activeTopic = activeSubject?.topics.find((topic) => topic.id === scope?.topicId) ?? null;
   const label = activeSubject ? `${activeSubject.name} · ${activeTopic?.name ?? "Mixed topics"}` : (scopeLabel ?? state.label ?? "Physics");
   // Choosing a queue before searching; once a match is found the scope is fixed.
   const hasPicker = Boolean(onScopeChange) && !invite && scopes.length > 0 && activeSubject !== null;

@@ -19,6 +19,16 @@ export interface PlayClientProps {
 export function PlayClient({ intent, me, scopeLabel, scopes = [] }: PlayClientProps) {
   const router = useRouter();
   const { state, answer, fireBoost, leave, requeue, startQueue } = useBattle(intent);
+  // The chosen queue lives here, not in the socket state: before searching there is no server echo
+  // to render from, so the picker would show a stale value.
+  const [scope, setScope] = useState(intent.kind === "queue" ? { subjectId: intent.subjectId, topicId: intent.topicId } : null);
+  const pickScope = useCallback(
+    (subjectId: string, topicId: string | null) => {
+      setScope({ subjectId, topicId });
+      requeue(subjectId, topicId);
+    },
+    [requeue],
+  );
   // Invite rooms and room joins start straight away; matchmaking waits for the scope to be chosen.
   const [queuing, setQueuing] = useState(intent.kind !== "queue");
   const start = useCallback(() => {
@@ -71,8 +81,9 @@ export function PlayClient({ intent, me, scopeLabel, scopes = [] }: PlayClientPr
       me={me}
       scopeLabel={scopeLabel}
       scopes={scopes}
+      scope={scope}
       queuing={queuing}
-      onScopeChange={requeue}
+      onScopeChange={pickScope}
       onStart={start}
       onLeave={leave}
     />
