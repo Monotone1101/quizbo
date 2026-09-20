@@ -5,10 +5,10 @@ Quizbo is three processes and two data stores:
 | Piece | Needs | Why |
 | --- | --- | --- |
 | `apps/web` (Next.js) | Serverless is fine | Pages, auth, non-realtime API routes |
-| `apps/battle` (Socket.io) | A **long-lived** process, **exactly one instance** | WebSockets; rooms are in memory for the MVP |
+| `apps/battle` (Socket.io) | A **long-lived** process; one instance, or several with `BATTLE_REDIS_URL` | WebSockets and live rooms |
 | `apps/worker` (BullMQ) | A background process + Redis | Nightly question bank top-up and re-plan (optional) |
 | PostgreSQL | Managed Postgres | Everything durable |
-| Redis | Only for the worker | BullMQ queue |
+| Redis | For the worker, and for the battle service when it runs several instances | BullMQ queue; shared rooms and matchmaking |
 
 ## Environment variables
 
@@ -27,6 +27,9 @@ Quizbo is three processes and two data stores:
 | `GEMINI_API_KEY` | ✓ | | ✓ | Optional; enables coach, extraction, analysis, question pipeline. Get one at https://aistudio.google.com/apikey |
 | `QUIZBO_GEMINI_MODEL` | ✓ | | ✓ | Defaults to `gemini-3.8-flash` (newest model with a free tier) |
 | `REDIS_URL` | | | ✓ | `rediss://` supported (Upstash) |
+| `BATTLE_REDIS_URL` | | optional | | Set to run several battle instances (shared rooms + queue). Can be the same Redis as `REDIS_URL`. |
+| `QUIZBO_AI_PACE_MS` | | | optional | Pause between AI calls in batch jobs (default 4500; 6000 suits the free tier, 0 a paid key) |
+| `QUIZBO_GEN_EFFORT` | | | optional | Reasoning depth for question generation: `high` (default) writes the best questions, `medium` is accepted more often when the free tier is busy |
 | `NEXT_PUBLIC_FISTS_VIDEO_URL` / `..._POSTER_URL` | ✓ (build) | | | Self-hosted ASCII loop (see checklist) |
 | `DATABASE_POOL_MAX` | optional | optional | optional | Default 10; use 1–3 on serverless |
 
@@ -87,13 +90,27 @@ proxy in front, and rebuild `web` with `NEXT_PUBLIC_BATTLE_URL` set to the publi
 - [ ] **Move Gemini to a paid (billing-enabled) key before real students use it.** On the free tier Google may use
       prompts and responses — here, student chat messages and uploaded notes — to improve its products. Free-tier
       rate limits are also low for a class-sized load.
-- [ ] Battle service scaled to exactly **one** instance; `WEB_ORIGIN` matches the web domain.
+- [ ] Battle service: one instance, or several **with `BATTLE_REDIS_URL` set on all of them**; `WEB_ORIGIN` matches the web domain.
 - [ ] `BATTLE_JWT_SECRET` identical on web and battle.
 - [ ] `https://<battle>/healthz` returns `{"ok":true}`; the dashboard shows "N in queue now" rather than "queue offline".
 - [ ] Do **not** set `SEED_DEMO_DATA=true` in production (it adds five fake leaderboard players).
 
-## Scaling past one battle instance
+## Scaling the battle service
 
-Room state and the matchmaking queue live in memory, so the battle service must run as a single
-instance. The follow-up in `stack.md` — the Socket.io Redis adapter plus Redis-backed room state —
-removes that limit; until then, a single small machine handles hundreds of concurrent battles.
+One small instance handles hundreds of concurrent battles. To run more (or to survive restarts
+without dropping the queue), set `BATTLE_REDIS_URL` on every battle instance and raise the instance
+count:
+
+- Each room lives on the instance that created it; its players can be connected to any instance.
+  Their events are forwarded to the owner, and messages to them go through the Socket.io Redis adapter.
+- Room owners, each user's current room and the matchmaking queue are kept in Redis. One instance at a
+  time holds the matchmaker lease and pairs players from the shared queue.
+- Entries expire 90 s after their instance stops refreshing them, so a crashed instance can't leave
+  players stuck "already in a battle". Battles running on a crashed instance are lost (not rated).
+- The browser connects with WebSocket first. If your platform only offers long-polling, enable sticky
+  sessions on the load balancer.
+- `/healthz` reports the instance id and its rooms; the queue count comes from the instance that
+  currently runs matchmaking.
+
+Tested in `apps/battle/src/cluster.test.ts` (two instances in one process sharing a message bus and a
+registry) and `registry.test.ts` (the Redis registry against a Redis mock).

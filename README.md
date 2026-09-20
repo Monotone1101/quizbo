@@ -14,11 +14,12 @@ Built from the design handoff (`README.md` + `product-spec/`) on the Industry de
 ```
             browser ──────────── HTTPS ───────────────►  apps/web  (Next.js 16, Auth.js, API routes)
                │                                            │  reads/writes
-               └──── WebSocket (signed battle token) ──►  apps/battle  (Socket.io, in-memory rooms)
+               └──── WebSocket (signed battle token) ──►  apps/battle  (Socket.io; Redis to scale)
                                                             │  writes battles, ELO, mastery
                                                             ▼
                               PostgreSQL  ◄────────────  apps/worker  (BullMQ on Redis:
-                                                            nightly question bank + re-plan)
+                                                            nightly questions, re-plan,
+                                                            AI resource finder)
 ```
 
 The battle service and the planner never call each other; they meet only in the database
@@ -28,9 +29,9 @@ The battle service and the planner never call each other; they meet only in the 
 | --- | --- |
 | `packages/core` | Pure, I/O-free logic with unit tests: ELO, matchmaking bands, battle scoring, derangement question orders, mastery, sub-topic breakdown, **deterministic scheduler**, skip rebalancing, extraction parsing, fuzzy topic matching, streaks, and the socket event contract. |
 | `packages/db` | Prisma 7 schema + migrations, the seed curriculum (72 hand-checked questions), the JEE study library (`src/content/jee.ts`: full Physics / Chemistry / Maths syllabus with verified free links plus official exam sites), and planner services (confirm exam, re-plan, skip). |
-| `packages/ai` | Narrow Gemini calls (Google Gen AI SDK), each with its prompt and output schema documented beside it: question generation, blind validation, weak-spot analysis, planner extraction, coach. Every call has a fallback. |
-| `apps/web` | Next.js app: dashboard, matchmaking/battle UI, breakdown + review, planner, resource library, coach drawer, onboarding, auth. |
-| `apps/battle` | Socket.io battle service: invite rooms, ELO-band matchmaking, timed rounds, reconnect grace period, forfeits, persistence. Event reference at the top of `src/server.ts`. |
+| `packages/ai` | Narrow Gemini calls (Google Gen AI SDK), each with its prompt and output schema documented beside it: question generation, blind validation, weak-spot analysis, planner extraction, coach, resource finder. Every call has a fallback. |
+| `apps/web` | Next.js app: dashboard, matchmaking/battle UI, breakdown + review, planner, progress tab (ELO over time, topic mastery; also `/api/progress`), resource library, coach drawer, onboarding, auth. |
+| `apps/battle` | Socket.io battle service: invite rooms, ELO-band matchmaking, timed rounds, reconnect grace period, forfeits, boosts, persistence; runs as one instance or several sharing Redis. Event reference at the top of `src/server.ts`. |
 | `apps/worker` | BullMQ worker and a Redis-free CLI for the question pipeline and nightly re-optimisation. |
 
 ## The rules this code enforces
@@ -53,7 +54,7 @@ Requirements: Node 22.12+ (24 works). No Docker needed.
 
 ```bash
 npm install
-npm run db:local          # starts a local Prisma Postgres; copy the postgres:// URL it prints
+npm run db:local          # starts a local PostgreSQL on :54329 (first run downloads it; no Docker)
 cp .env.example .env      # set DATABASE_URL, AUTH_SECRET, BATTLE_JWT_SECRET (see comments)
 npm run db:deploy         # apply migrations
 SEED_DEMO_DATA=true npm run db:seed
@@ -81,6 +82,9 @@ paragraph.
 | --- | --- |
 | `npm test` | Unit tests (core, ai) + battle service integration tests (real sockets). |
 | `npm run typecheck` | Type-checks every workspace. |
+| `npm run questions:pipeline -- status` | Validated / waiting / rejected questions per topic (no API key needed). |
+| `npm run questions:pipeline -- fill --min 10` | **Make every topic battle-ready**: generate, blind-review, repeat until each topic has 10 validated questions. Safe to stop and re-run. Needs `GEMINI_API_KEY`. |
+| `npm run questions:pipeline -- resources --topics 10` | AI resource finder: suggests study pages for the weakest topics, keeps only links that load and mention the topic. |
 | `npm run questions:pipeline -- generate --subject physics-12 --count 6` | Generate unvalidated questions offline. |
 | `npm run questions:pipeline -- validate --limit 50` | Blind AI review; passing questions become battle-eligible. |
 | `npm run questions:pipeline -- spot-check --sample 10` | Print a random sample for a human reviewer. |
@@ -90,15 +94,24 @@ paragraph.
 
 ## Troubleshooting
 
-**`PrismaClientKnownRequestError` / `ECONNREFUSED` on any page** — the local database stopped (it
-doesn't survive a reboot or sleep). `npm run dev` starts it in the background automatically, so restart
-`npm run dev`. To start only the database, or to see why it won't start:
+**`PrismaClientKnownRequestError` / `ECONNREFUSED` on any page** — the local database isn't running
+(it doesn't survive a reboot). `npm run dev` starts it automatically, so restart `npm run dev`. To start
+or stop it on its own:
 
 ```bash
 npm run db:local
+npm run db:stop
 ```
 
-It keeps your data between restarts.
+Data lives in `.local/postgres` and survives restarts; the server log is `.local/postgres.log`.
+
+**Errors mention a table that "does not exist"**: the database is empty. `npm run dev` applies migrations
+and reloads the seed data automatically; to do it by hand:
+
+```bash
+npm run db:deploy
+SEED_DEMO_DATA=true npm run db:seed
+```
 
 **"The coach is offline" / planner asks for manual cards** — no `GEMINI_API_KEY` in `.env`. Check with
 `npm run smoke -w @quizbo/ai`.

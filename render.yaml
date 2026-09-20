@@ -55,9 +55,11 @@ services:
     name: quizbo-battle
     runtime: node
     plan: starter
-    # One instance only: room state is in memory until the Redis-backed rooms follow-up (stack.md).
+    # With BATTLE_REDIS_URL set, instances share rooms and the queue through Redis, so this can go
+    # above 1 (see DEPLOY.md, "Scaling the battle service").
     numInstances: 1
-    buildCommand: npm ci
+    # --omit=dev skips build-only packages (including the local PostgreSQL used in development).
+    buildCommand: npm ci --omit=dev
     startCommand: npm run start -w @quizbo/battle
     healthCheckPath: /healthz
     envVars:
@@ -66,12 +68,14 @@ services:
         fromDatabase: { name: quizbo-db, property: connectionString }
       - key: WEB_ORIGIN
         sync: false
+      - key: BATTLE_REDIS_URL
+        fromService: { type: keyvalue, name: quizbo-redis, property: connectionString }
 
   - type: worker
     name: quizbo-worker
     runtime: node
     plan: starter
-    buildCommand: npm ci
+    buildCommand: npm ci --omit=dev
     startCommand: npm run start -w @quizbo/worker
     envVars:
       - fromGroup: quizbo-shared

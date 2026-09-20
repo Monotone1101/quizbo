@@ -27,8 +27,11 @@ export async function signInDemo(_previous: string | null, formData: FormData): 
       redirectTo: "/onboarding",
     });
   } catch (error) {
-    if (error instanceof AuthError) return "Use a name with at least 2 characters.";
-    throw error;
+    if (!(error instanceof AuthError)) throw error;
+    // Only a rejected name is the user's to fix; anything else (usually the database) is ours.
+    if (error.type === "CredentialsSignin") return "Use a name with at least 2 characters.";
+    console.error("[auth] demo sign-in failed", error.cause ?? error);
+    return "Couldn't sign you in: the server can't reach its database. Try again in a moment.";
   }
   return null;
 }

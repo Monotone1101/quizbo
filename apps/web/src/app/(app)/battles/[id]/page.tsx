@@ -2,6 +2,7 @@ import { weakSpotAnalysis } from "@quizbo/ai";
 import { fallbackWeakSpotAnalysis, reviewMinutes, type SubtopicRow, type Verdict } from "@quizbo/core";
 import { prisma } from "@quizbo/db";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { SetCrumb } from "@/components/shell/shell-context";
@@ -171,7 +172,7 @@ export default async function BattleBreakdownPage({ params }: { params: Promise<
               REMATCH ON {weak.topicName.toUpperCase()} <span className="text-[11px]">±150</span>
             </ButtonLink>
             <div className="border-t border-divider pt-2.5 text-[11px] text-neutral-600">
-              Multi-battle trends belong on a progress tab, not here.
+              Trends across battles are on your <Link href="/progress">progress tab</Link>.
             </div>
           </Blueprint>
         )}

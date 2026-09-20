@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LootLink } from "@/components/fun/loot";
 import { Blueprint } from "@/components/ui/blueprint";
-import { GridPulse } from "@/components/ui/grid-pulse";
 import { loadLibrary, MIN_TOPIC_QUESTIONS, type LibraryTopic } from "@/lib/data/resources";
 import { requireViewer } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -27,17 +26,12 @@ export default async function ResourcesPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-[26px]">
-      <div className="relative -mx-4 -mt-4 flex flex-wrap items-end gap-x-[26px] gap-y-4 overflow-hidden border-b border-divider px-4 pb-[18px] pt-10 md:-mx-[26px] md:-mt-[26px] md:px-[26px] md:pt-14">
-        <GridPulse cell={28} ambient={3} />
-        <div className="relative">
-          <div className="qz-lab text-accent-700" data-grid-avoid>
-            Library · JEE Main &amp; Advanced
-          </div>
-          <div className="mt-1 font-heading text-[56px] font-semibold leading-none" data-grid-avoid>
-            RESOURCES
-          </div>
+      <div className="flex flex-wrap items-end gap-x-[26px] gap-y-4 border-b border-divider pb-[18px]">
+        <div>
+          <div className="qz-lab text-accent-700">Library · JEE Main &amp; Advanced</div>
+          <div className="mt-1 font-heading text-[56px] font-semibold leading-none">RESOURCES</div>
         </div>
-        <div className="relative flex flex-wrap gap-x-[26px] gap-y-3 md:ml-auto md:text-right" data-grid-avoid>
+        <div className="flex flex-wrap gap-x-[26px] gap-y-3 md:ml-auto md:text-right">
           <div>
             <div className="qz-lab text-neutral-600">Subjects</div>
             <div className="qz-num text-[34px]">{library.subjects.length}</div>
@@ -168,7 +162,14 @@ function TopicCard({ topic }: { topic: LibraryTopic }) {
                 className="block border-l-2 border-accent-300 pl-[9px] text-text no-underline hover:border-hot hover:text-accent-700"
               >
                 <div className="text-[13px] leading-[1.3]">{r.title}</div>
-                <div className="qz-lab mt-0.5 text-neutral-600">{r.source}</div>
+                <div className="qz-lab mt-0.5 flex items-center gap-1.5 text-neutral-600">
+                  {r.source}
+                  {r.ai && (
+                    <span className="chip chip-outline px-1 py-0 text-[9px]" title="Suggested by the AI resource finder and link-checked">
+                      AI FIND
+                    </span>
+                  )}
+                </div>
               </LootLink>
             </li>
           ))}

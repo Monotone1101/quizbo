@@ -24,4 +24,6 @@ export const config = {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
+  /** Set to run several battle instances: they share rooms and the queue through this Redis. */
+  redisUrl: process.env.BATTLE_REDIS_URL?.trim() || null,
 };

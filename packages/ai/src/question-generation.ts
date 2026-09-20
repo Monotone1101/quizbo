@@ -13,7 +13,7 @@
  */
 import { z } from "zod";
 import type { AiResult } from "./client";
-import { callStructured } from "./structured";
+import { callStructured, type Effort } from "./structured";
 import { sanitizeGeneratedQuestion, type GeneratedQuestion } from "./validators";
 
 export type QuestionDifficulty = "EASY" | "MEDIUM" | "HARD";
@@ -71,7 +71,9 @@ export async function generateQuestions(input: GenerateQuestionsInput): Promise<
       },
     ],
     schema: GenerationSchema,
-    effort: "high",
+    // Deep reasoning writes better questions, but the free tier often refuses those requests when
+    // busy (503). QUIZBO_GEN_EFFORT=medium keeps long batch runs going.
+    effort: (process.env.QUIZBO_GEN_EFFORT as Effort | undefined) ?? "high",
     maxTokens: 16_000,
     signal: input.signal,
   });

@@ -19,7 +19,6 @@ import {
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Confetti } from "@/components/fun/confetti";
 import { Corners } from "@/components/ui/blueprint";
-import { GridPulse } from "@/components/ui/grid-pulse";
 import { triggerEgg } from "@/lib/easter-eggs";
 import { cn, formatSigned, pad } from "@/lib/utils";
 import { useFrameClock, useWallClock } from "./clocks";
@@ -381,13 +380,11 @@ export function BattleScreen({
   return (
     <div
       className={cn(
-        "qz-arena relative flex min-h-screen flex-col overflow-hidden px-6 py-[30px] text-white sm:px-10",
+        "qz-arena relative flex min-h-screen flex-col overflow-hidden px-3 py-4 text-white sm:px-10 sm:py-[30px]",
         quake > 0 && (quake % 2 ? "qz-quake" : "qz-quake-b"),
       )}
       data-heat={onFire ? "fire" : undefined}
     >
-      <GridPulse cell={36} ambient={2} maxLit={120} style={{ "--grid-pulse-line": "rgba(255,250,255,0.05)" } as CSSProperties} />
-
       {vignette > 0 && <div key={`v${vignette}`} className="qz-vignette" aria-hidden />}
       {flash > 0 && <div key={`f${flash}`} className="qz-flashbang" aria-hidden />}
       {bolt > 0 && <Bolt key={`b${bolt}`} />}
@@ -408,27 +405,27 @@ export function BattleScreen({
       )}
       {outcome === "VICTORY" && !endEgg && <Confetti />}
 
-      <div className="relative z-10 flex items-start gap-6 sm:gap-9">
+      <div className="relative z-10 flex items-start gap-3 sm:gap-9">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-2.5">
-            <span className="truncate font-heading text-[22px] font-semibold">{me?.name ?? "You"}</span>
-            <span className="qz-num text-[13px] text-white/60">{me?.rating ?? ""}</span>
-            <StreakChip streak={me?.streak ?? 0} mine />
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="truncate font-heading text-[17px] font-semibold sm:text-[22px]">{me?.name ?? "You"}</span>
+            <span className="qz-num hidden text-[13px] text-white/60 sm:inline">{me?.rating ?? ""}</span>
+            {(me?.streak ?? 0) > 0 && <StreakChip streak={me?.streak ?? 0} mine />}
             {onFire && <span className="chip qz-pulse bg-hot text-white">ON FIRE</span>}
           </div>
           <HpBar player={me} side="left" hit={state.hits[meId] ?? 0} floaters={floaters.filter((f) => f.userId === meId)} />
         </div>
-        <div className="w-[120px] flex-none text-center sm:w-[180px]">
+        <div className="w-[72px] flex-none text-center sm:w-[180px]">
           <div className="qz-lab text-white/60">Question</div>
-          <div className="qz-num text-[30px]">
+          <div className="qz-num text-[20px] sm:text-[30px]">
             {pad(question?.round ?? 0)} / {pad(state.totalRounds || question?.totalRounds || 0)}
           </div>
         </div>
         <div className="min-w-0 flex-1 text-right">
-          <div className="flex flex-wrap items-baseline justify-end gap-2.5">
-            <StreakChip streak={opponent?.streak ?? 0} mine={false} />
-            <span className="qz-num text-[13px] text-white/60">{opponent?.rating ?? ""}</span>
-            <span className="truncate font-heading text-[22px] font-semibold">
+          <div className="flex flex-wrap items-baseline justify-end gap-x-2 gap-y-1">
+            {(opponent?.streak ?? 0) > 0 && <StreakChip streak={opponent?.streak ?? 0} mine={false} />}
+            <span className="qz-num hidden text-[13px] text-white/60 sm:inline">{opponent?.rating ?? ""}</span>
+            <span className="truncate font-heading text-[17px] font-semibold sm:text-[22px]">
               {opponent?.name ?? "Opponent"}
               {opponent && !opponent.connected && <span className="ml-2 text-[13px] text-white/60">(offline)</span>}
             </span>
@@ -458,7 +455,7 @@ export function BattleScreen({
         {end ? (
           <div
             className={cn(
-              "blueprint w-[900px] max-w-full border-white/45 bg-[rgba(10,36,99,.45)] px-[34px] py-[30px] text-center",
+              "blueprint w-[900px] max-w-full border-white/45 bg-[rgba(10,36,99,.45)] px-4 py-6 text-center sm:px-[34px] sm:py-[30px]",
               outcome === "DEFEAT" && "grayscale-[60%]",
             )}
           >
@@ -484,9 +481,11 @@ export function BattleScreen({
           </div>
         ) : (
           <>
-            <div className="flex w-[900px] max-w-full items-center gap-4">
-              <span className="qz-lab flex-none text-white/60">{question?.topicName ?? "Get ready"}</span>
-              <div className="h-1.5 flex-1 overflow-hidden bg-white/16">
+            <div className="flex w-[900px] max-w-full flex-wrap items-center gap-x-3 gap-y-1.5 sm:gap-4">
+              <span className="qz-lab order-1 min-w-0 flex-1 truncate text-white/60 sm:order-none sm:flex-none">
+                {question?.topicName ?? "Get ready"}
+              </span>
+              <div className="order-3 h-1.5 w-full flex-1 overflow-hidden bg-white/16 sm:order-none sm:w-auto">
                 <div
                   className={cn("h-full", roundBoost?.extraMs ? "qz-warp" : timeLow && "qz-pulse")}
                   style={{
@@ -495,15 +494,18 @@ export function BattleScreen({
                   }}
                 />
               </div>
-              <span className={cn("qz-num w-[64px] flex-none text-right text-[26px]", timeLow && "text-[#f07a98]")}>
+              <span className={cn("qz-num order-2 w-[58px] flex-none text-right text-[22px] sm:order-none sm:w-[64px] sm:text-[26px]", timeLow && "text-[#f07a98]")}>
                 {(remaining / 1000).toFixed(1)}s
               </span>
               <span
-                className={cn("tag flex-none gap-1", overclocked && "qz-pulse")}
+                className={cn("tag order-4 flex-none gap-1 sm:order-none", overclocked && "qz-pulse")}
                 style={{ background: overclocked ? MAGENTA : speedBonusLive && !paused ? "rgba(62,146,204,.45)" : "rgba(255,250,255,.12)", color: GHOST }}
               >
                 <Zap size={11} aria-hidden />
-                {overclocked ? "OVERCLOCKED" : speedBonusLive && !paused ? "SPEED BONUS ON" : "SPEED BONUS GONE"}
+                <span className="sm:hidden">{overclocked ? "OVERCLOCK" : speedBonusLive && !paused ? "SPEED ON" : "SPEED GONE"}</span>
+                <span className="hidden sm:inline">
+                  {overclocked ? "OVERCLOCKED" : speedBonusLive && !paused ? "SPEED BONUS ON" : "SPEED BONUS GONE"}
+                </span>
               </span>
             </div>
 
@@ -512,7 +514,7 @@ export function BattleScreen({
               <div
                 key={answer ? `${question?.round}-${answer.correct}` : `q-${question?.round}`}
                 className={cn(
-                  "blueprint border-white/40 bg-[rgba(10,36,99,.35)] px-[34px] py-[30px] backdrop-blur-[2px]",
+                  "blueprint border-white/40 bg-[rgba(10,36,99,.35)] px-4 py-5 backdrop-blur-[2px] sm:px-[34px] sm:py-[30px]",
                   answer && (answer.correct ? "qz-flash-correct" : "qz-flash-wrong"),
                 )}
               >
@@ -549,10 +551,12 @@ export function BattleScreen({
             {hand.length > 0 && (
               <div className="w-[900px] max-w-full">
                 <div className="mb-2 flex items-baseline justify-between">
-                  <span className="qz-lab text-white/60">Your boosts · one per question, before you answer</span>
+                  <span className="qz-lab text-white/60">
+                    Your boosts <span className="hidden sm:inline">· one per question, before you answer</span>
+                  </span>
                   <span className="qz-lab hidden text-white/40 sm:inline">Keys Q · W · E</span>
                 </div>
-                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
                   {hand.map((slot, index) => {
                     const Icon = BOOST_ICON[slot.id];
                     const fired = state.lastBoost?.userId === meId && state.lastBoost.boostId === slot.id;
@@ -560,7 +564,7 @@ export function BattleScreen({
                       <button
                         key={slot.id}
                         type="button"
-                        className="qz-boost"
+                        className="qz-boost flex-col gap-1.5 px-2 py-2 text-center sm:flex-row sm:gap-2.5 sm:px-3 sm:py-2.5 sm:text-left"
                         data-state={slot.state}
                         data-fired={fired || undefined}
                         disabled={slot.state !== "ready" || boostLocked}
@@ -571,8 +575,11 @@ export function BattleScreen({
                           <Icon size={16} strokeWidth={1.75} aria-hidden />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate font-heading text-[15px] font-semibold leading-tight">{BOOSTS[slot.id].name}</span>
-                          <span className="block truncate text-[11px] leading-snug text-white/65">
+                          <span className="block truncate font-heading text-[13px] font-semibold leading-tight sm:text-[15px]">
+                            {BOOSTS[slot.id].name}
+                          </span>
+                          {/* The blurb needs room; on a phone the card is a third of the width, so it is dropped. */}
+                          <span className="hidden truncate text-[11px] leading-snug text-white/65 sm:block">
                             {slot.state === "armed" ? "Armed — waiting for its moment" : slot.state === "spent" ? "Used" : BOOSTS[slot.id].blurb}
                           </span>
                         </span>

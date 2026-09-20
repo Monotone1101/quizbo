@@ -14,11 +14,15 @@
   "dependencies": {
     "@quizbo/core": "*",
     "@quizbo/db": "*",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "ioredis": "^5.11.1",
     "jose": "^6.2.12",
     "socket.io": "^4.8.3",
     "tsx": "^4.23.13"
   },
   "devDependencies": {
+    "@types/ioredis-mock": "^8.2.8",
+    "ioredis-mock": "^8.13.1",
     "socket.io-client": "^4.8.3"
   }
 }

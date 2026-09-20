@@ -2,12 +2,13 @@
  * Background worker (BullMQ on Redis). Two nightly job schedulers:
  *   question-bank  02:00 UTC — top up topics below the target, then run the validation pass.
  *   replan         02:30 UTC — re-run the deterministic scheduler with fresh mastery for every student.
+ *   resources      03:00 UTC — AI resource finder for the weakest topics (links are fetched and checked).
  * Without REDIS_URL, run the same jobs on demand with `npm run questions:pipeline`.
  */
 import "./env";
 import { Queue, Worker, type ConnectionOptions } from "bullmq";
 import { prisma } from "@quizbo/db";
-import { replanAll, runGeneration, runValidation } from "./pipeline";
+import { replanAll, runGeneration, runResourceFinder, runValidation } from "./pipeline";
 
 const QUEUE = "quizbo-maintenance";
 
@@ -35,6 +36,7 @@ async function main() {
   const queue = new Queue(QUEUE, { connection });
   await queue.upsertJobScheduler("nightly-question-bank", { pattern: "0 2 * * *", tz: "UTC" }, { name: "question-bank" });
   await queue.upsertJobScheduler("nightly-replan", { pattern: "30 2 * * *", tz: "UTC" }, { name: "replan" });
+  await queue.upsertJobScheduler("nightly-resources", { pattern: "0 3 * * *", tz: "UTC" }, { name: "resources" });
 
   const worker = new Worker(
     QUEUE,
@@ -47,6 +49,8 @@ async function main() {
         }
         case "replan":
           return replanAll();
+        case "resources":
+          return runResourceFinder({ topics: 10, perTopic: 3, maxLinks: 6 });
         default:
           throw new Error(`Unknown job ${job.name}`);
       }

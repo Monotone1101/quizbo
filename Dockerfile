@@ -48,20 +48,24 @@ USER node
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
 
-# ── battle service (single instance: rooms are in memory) ─────────────────────
-FROM source AS battle
+# ── runtime dependencies (drops build-only packages, e.g. the local PostgreSQL used in dev) ───
+FROM source AS runtime
+RUN npm prune --omit=dev
+
+# ── battle service (one instance, or several with BATTLE_REDIS_URL) ───────────
+FROM runtime AS battle
 ENV NODE_ENV=production PORT=4000
 USER node
 EXPOSE 4000
 CMD ["node", "--import", "tsx", "apps/battle/src/index.ts"]
 
 # ── worker ─────────────────────────────────────────────────────────────────────
-FROM source AS worker
+FROM runtime AS worker
 ENV NODE_ENV=production
 USER node
 CMD ["node", "--import", "tsx", "apps/worker/src/index.ts"]
 
 # ── migrations + seed (run once per deploy) ────────────────────────────────────
-FROM source AS migrate
+FROM runtime AS migrate
 ENV NODE_ENV=production
 CMD ["sh", "-c", "npm run migrate:deploy -w @quizbo/db && npm run seed -w @quizbo/db"]

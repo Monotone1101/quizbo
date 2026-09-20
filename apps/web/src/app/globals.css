@@ -80,7 +80,7 @@
     --color-background: var(--color-bg);
     --color-foreground: var(--color-text);
     --color-border: var(--color-divider);
-    /* The glowing edge on buttons and search fields (see .btn and .qz-glow-field). */
+    /* Spectrum for the battle answer options (.qz-opt); the aurora below edges the main buttons. */
     --qz-spectrum: linear-gradient(90deg, transparent 0%, #3e92cc 18%, #a9cfea 34%, #d8315b 50%, #f07a98 62%, #3e92cc 80%, transparent 100%);
     /* Seamless (first stop = last stop) so it can scroll at background-size 200%. */
     --qz-aurora: linear-gradient(90deg, #3e92cc 0%, #3ecfa6 18%, #a9cfea 32%, #f0569a 50%, #f5c542 66%, #d8315b 82%, #3e92cc 100%);
@@ -197,12 +197,12 @@
     padding: 7px 15px;
     transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
   }
-  .btn:hover { color: var(--color-text); transform: translateY(-1px); border-color: color-mix(in srgb, var(--color-text) 30%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent), 0 10px 24px -14px rgba(216, 49, 91, 0.55); }
+  .btn:hover { color: var(--color-text); transform: translateY(-1px); border-color: color-mix(in srgb, var(--color-text) 30%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent); }
   .btn:active { transform: translateY(1px) scale(0.98); }
   .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
   .btn svg { display: block; }
   .btn-primary { background: var(--color-accent); color: var(--color-bg); border-color: color-mix(in srgb, var(--color-accent) 70%, #ffffff); }
-  .btn-primary:hover { background: var(--color-accent-600); color: var(--color-bg); border-color: color-mix(in srgb, var(--color-accent-600) 60%, #ffffff); }
+  .btn-primary:hover { box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent), 0 8px 18px -14px rgba(216, 49, 91, 0.22); background: var(--color-accent-600); color: var(--color-bg); border-color: color-mix(in srgb, var(--color-accent-600) 60%, #ffffff); }
   .btn-primary:active { background: var(--color-accent-700); }
   .btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
   .btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
@@ -214,33 +214,28 @@
   .btn-on-dark { color: #fff; background: rgba(255, 250, 255, 0.06); border-color: rgba(255, 250, 255, 0.24); }
   .btn-on-dark:hover { color: #fff; background: rgba(255, 250, 255, 0.12); border-color: rgba(255, 250, 255, 0.4); }
 
-  /* The aurora edge, shared by buttons and the search pill.
+  /* The aurora edge, on main (primary) buttons only.
      ::after is the hairline (a moving spectrum, faded out towards both ends);
-     ::before is the bloom (the same spectrum, blurred and masked to an ellipse rising from the bottom). */
-  .btn:not(.btn-ghost)::before, .btn:not(.btn-ghost)::after,
-  .qz-glow-field::before, .qz-glow-field::after {
+     ::before is the bloom (the same spectrum, blurred and masked to an ellipse rising from the bottom).
+     To put it on another element, add that selector to these rules. */
+  .btn-primary::before, .btn-primary::after {
     content: ""; position: absolute; pointer-events: none;
     background: var(--qz-aurora); background-size: 200% 100%;
     transition: opacity 0.25s ease;
   }
-  .btn:not(.btn-ghost)::after, .qz-glow-field::after {
-    left: 0; right: 0; bottom: 0; height: 2px; opacity: 0.8;
-    -webkit-mask-image: linear-gradient(90deg, transparent 8%, #000 32%, #000 68%, transparent 92%);
-    mask-image: linear-gradient(90deg, transparent 8%, #000 32%, #000 68%, transparent 92%);
+  .btn-primary::after {
+    left: 0; right: 0; bottom: 0; height: 2px; opacity: 0.75;
+    -webkit-mask-image: linear-gradient(90deg, transparent 10%, #000 34%, #000 66%, transparent 90%);
+    mask-image: linear-gradient(90deg, transparent 10%, #000 34%, #000 66%, transparent 90%);
   }
-  .btn:not(.btn-ghost)::before, .qz-glow-field::before {
-    inset: 0; z-index: -1; opacity: 0.4; filter: blur(5px);
-    -webkit-mask-image: radial-gradient(58% 130% at 50% 100%, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 72%);
-    mask-image: radial-gradient(58% 130% at 50% 100%, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 72%);
+  .btn-primary::before {
+    inset: 0; z-index: -1; opacity: 0.5; filter: blur(6px);
+    -webkit-mask-image: radial-gradient(55% 120% at 50% 100%, #000 0%, rgba(0, 0, 0, 0.55) 40%, transparent 70%);
+    mask-image: radial-gradient(55% 120% at 50% 100%, #000 0%, rgba(0, 0, 0, 0.55) 40%, transparent 70%);
   }
-  .btn-primary:not(.btn-ghost)::after { opacity: 1; height: 2.5px; }
-  .btn-primary:not(.btn-ghost)::before { opacity: 0.85; }
-  .btn-primary:not(.btn-ghost):not(:disabled):hover::before { opacity: 1; }
-  .btn:not(.btn-ghost):not(:disabled):hover::after, .btn:not(.btn-ghost):focus-visible::after,
-  .qz-glow-field:hover::after, .qz-glow-field:focus-within::after { opacity: 1; animation: qzSpectrum 3s linear infinite; }
-  .btn:not(.btn-ghost):not(:disabled):hover::before, .btn:not(.btn-ghost):focus-visible::before,
-  .qz-glow-field:hover::before, .qz-glow-field:focus-within::before { opacity: 0.8; animation: qzSpectrum 3s linear infinite; }
-  .btn:disabled::before, .btn:disabled::after { opacity: 0 !important; }
+  .btn-primary:not(:disabled):hover::after, .btn-primary:focus-visible::after { opacity: 0.6; animation: qzSpectrum 3s linear infinite; }
+  .btn-primary:not(:disabled):hover::before, .btn-primary:focus-visible::before { opacity: 0.35; animation: qzSpectrum 3s linear infinite; }
+  .btn-primary:disabled::before, .btn-primary:disabled::after { opacity: 0 !important; }
 
   /* Search pill, as in the brand reference. */
   .qz-glow-field {
@@ -251,8 +246,6 @@
     box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
-  .qz-glow-field::before { opacity: 0.6; }
-  .qz-glow-field::after { opacity: 0.95; }
   .qz-glow-field:hover, .qz-glow-field:focus-within { border-color: color-mix(in srgb, var(--color-text) 26%, transparent); }
   .qz-glow-field input {
     flex: 1; min-width: 0; min-height: 42px; border: 0; outline: none; background: transparent;
@@ -407,7 +400,7 @@
   .qz-burst { position: fixed; left: 50%; top: 42%; z-index: 44; pointer-events: none; }
   .qz-burst > i { position: absolute; width: 8px; height: 8px; border-radius: 999px; animation: qzSpark 0.8s ease-out forwards; }
   .qz-banner {
-    position: fixed; left: 50%; top: 88px; translate: -50% 0; z-index: 45; pointer-events: none; display: flex; align-items: center; gap: 10px;
+    position: fixed; left: 50%; top: 88px; translate: -50% 0; z-index: 45; max-width: calc(100vw - 24px); pointer-events: none; display: flex; align-items: center; gap: 10px;
     padding: 10px 18px; color: #fffaff; white-space: nowrap;
     background: linear-gradient(90deg, rgba(216, 49, 91, 0.92), rgba(10, 36, 99, 0.92));
     box-shadow: 0 10px 40px -12px rgba(216, 49, 91, 0.9);
@@ -436,6 +429,11 @@
 @keyframes qzFlashCorrect { 0% { box-shadow: inset 0 0 0 0 rgba(181, 217, 253, 0); } 30% { box-shadow: inset 0 0 0 3px rgba(181, 217, 253, 0.95); } 100% { box-shadow: inset 0 0 0 0 rgba(181, 217, 253, 0); } }
 @keyframes qzShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 50% { transform: translateX(5px); } 75% { transform: translateX(-3px); } }
 @keyframes qzHit { 0% { opacity: 0.85; } 100% { opacity: 0; } }
+/* On a phone the banner would cover the scoreboard, so it sits above the boost tray instead. */
+@media (max-width: 640px) {
+  .qz-banner { top: auto; bottom: 96px; }
+}
+
 @keyframes qzSpectrum { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
 @keyframes qzPop { 0% { transform: scale(0.96); } 55% { transform: scale(1.04); } 100% { transform: scale(1); } }
 @keyframes qzCrumble { 0% { opacity: 1; transform: none; filter: none; } 40% { transform: translateY(2px) rotate(-1deg); } 100% { opacity: 0.12; transform: none; } }

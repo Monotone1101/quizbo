@@ -4,5 +4,6 @@ export * from "./coach";
 export * from "./planner-extraction";
 export * from "./question-generation";
 export * from "./question-validation";
+export * from "./resource-finder";
 export * from "./structured";
 export * from "./validators";

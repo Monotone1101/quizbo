@@ -12,7 +12,7 @@ export interface LibraryTopic {
   questionCount: number;
   mastery: number | null;
   weak: boolean;
-  resources: Array<{ id: string; title: string; url: string; source: string }>;
+  resources: Array<{ id: string; title: string; url: string; source: string; ai: boolean }>;
 }
 
 export interface LibrarySubject {
@@ -75,7 +75,7 @@ export async function loadLibrary(viewer: User, filter: { subject?: string; q?: 
           questionCount: topic._count.questions,
           mastery: score,
           weak: score !== null && score < WEAK_MASTERY,
-          resources: resources.map((r) => ({ id: r.id, title: r.title, url: r.url, source: r.sourceLabel })),
+          resources: resources.map((r) => ({ id: r.id, title: r.title, url: r.url, source: r.sourceLabel, ai: r.origin === "AI" })),
         },
       ]);
       matchCount += 1;

@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
-import type { CSSProperties } from "react";
 import { redirect } from "next/navigation";
 import { authProviders } from "@/auth";
 import { signInWithGoogle } from "@/app/actions/auth";
 import { Logo } from "@/components/shell/sidebar";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { Blueprint } from "@/components/ui/blueprint";
-import { GridPulse } from "@/components/ui/grid-pulse";
 import { getViewer } from "@/lib/session";
 import { DemoSignInForm, EmailSignInForm } from "./sign-in-forms";
 
@@ -32,7 +30,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   return (
     <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[minmax(0,1fr)_520px]">
       <section className="qz-arena relative hidden overflow-hidden text-white lg:block">
-        <GridPulse cell={32} ambient={4} style={{ "--grid-pulse-line": "rgba(255,250,255,0.07)" } as CSSProperties} />
+        <div className="qz-hatch-rev absolute inset-0 opacity-50" />
         <div className="relative flex h-full flex-col justify-between p-12">
           <div className="font-heading text-[19px] font-semibold tracking-[.02em]">QUIZBO</div>
           <div>

@@ -28,8 +28,9 @@ card can show where an inferred date came from ("read from 'next Friday'").
 
 ## Dependencies beyond `stack.md`
 
-- **AI provider:** `stack.md` specifies the Anthropic Claude API; at the client's request every AI touchpoint uses **Google Gemini** instead, through `@google/genai`, defaulting to `gemini-3.8-flash` (the newest model with a free tier). Free-tier prompts may be used by Google to improve its products — use a paid key for real students.
-- **Tooling:** `turbo` (monorepo tasks), `tsx` (runs the TypeScript battle service and worker without a bundler), `vitest`.
+- **AI provider:** `stack.md` specifies a different LLM vendor; at the client's request every AI touchpoint uses **Google Gemini** instead, through `@google/genai`, defaulting to `gemini-3.8-flash` (the newest model with a free tier). Free-tier prompts may be used by Google to improve its products — use a paid key for real students.
+- **Tooling:** `turbo` (monorepo tasks), `tsx` (runs the TypeScript battle service and worker without a bundler), `vitest`, `embedded-postgres` (a real PostgreSQL for local development, started by `npm run db:local`; dev-only).
+- **Battle service scaling:** `ioredis` + `@socket.io/redis-adapter`, used only when `BATTLE_REDIS_URL` is set.
 - **Prisma 7 requirements:** `@prisma/adapter-pg` + `pg` (driver adapters are mandatory in v7), `dotenv` for `prisma.config.ts`.
 - **Web UI:** `radix-ui` (the primitives shadcn/ui wraps), `class-variance-authority`, `clsx`, `tailwind-merge`, `sonner` (toasts), `lucide-react` (icons, as the design specifies), `server-only`.
 - **Validation/auth:** `zod` (form + LLM output schemas), `jose` (battle tokens shared by web and battle service), `@auth/prisma-adapter`.
@@ -127,10 +128,14 @@ card can show where an inferred date came from ("read from 'next Friday'").
 - New topics have no battle questions yet: Chemistry is absent from the subject switcher, and "Battle this" appears only on topics with at least 5 validated questions. Run the question pipeline to fill them.
 - Design deviation: a **Resources** link was added to the top nav, and the sidebar resources header links to the library ("ALL →").
 
+**Local database**
+- Local development used Prisma's `prisma dev` server (PGlite) at first. It dropped connections whenever the web app, battle service and worker queried at the same time (27 of 30 parallel queries failed) and it lost its contents after a Prisma update, so `npm run db:local` now runs a real PostgreSQL 17 from npm (`embedded-postgres`) on port 54329, with data in `.local/postgres`. Hosting is unaffected: production has always used a managed Postgres.
+
 ## Known gaps
 
-- Single battle-service instance (in-memory rooms and queue); Redis-backed rooms are the documented follow-up.
+- Several battle instances are supported with `BATTLE_REDIS_URL` (see DEPLOY.md). A battle in progress on an instance that crashes is lost, not migrated.
 - No anti-cheat beyond independent question/option orders and server-side timing (tab-switch detection and single-session enforcement are out of MVP scope). Opening the battle in a second tab moves the session there.
 - The seed question bank needs an educator's spot-check before launch.
-- No multi-battle progress tab, no mobile-specific layouts, no AI-sourced resources job yet.
+- The AI resource finder only suggests pages on a fixed list of trusted free sites, and stores a link only after fetching it and finding the check phrase on the page. Pages that change later are not re-checked automatically (`npm run resources:check` covers the curated library).
+- Questions for the new JEE topics come from the AI pipeline (`questions:pipeline -- fill`). They pass a blind AI review but still need an educator's spot-check (`spot-check`) before launch.
 - `prefers-reduced-motion` is honoured by the canvases, video and button motion; there's no in-app motion toggle.

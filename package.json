@@ -20,10 +20,12 @@
     "test": "turbo run test",
     "db:generate": "npm run generate -w @quizbo/db",
     "db:local": "npm run local -w @quizbo/db",
+    "db:stop": "npm run local:stop -w @quizbo/db",
     "db:migrate": "npm run migrate:dev -w @quizbo/db",
     "db:deploy": "npm run migrate:deploy -w @quizbo/db",
     "db:seed": "npm run seed -w @quizbo/db",
-    "questions:pipeline": "npm run pipeline -w @quizbo/worker",
+    "db:demo-plan": "npm run demo:plan -w @quizbo/db --",
+    "questions:pipeline": "npm run pipeline -w @quizbo/worker --",
     "start:web": "npm run start -w @quizbo/web",
     "start:battle": "npm run start -w @quizbo/battle",
     "start:worker": "npm run start -w @quizbo/worker"

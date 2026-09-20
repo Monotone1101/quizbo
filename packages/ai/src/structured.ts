@@ -13,6 +13,8 @@ export interface ChatTurn {
 
 export interface StructuredCall<S extends z.ZodType> {
   system: string;
+  /** Overrides QUIZBO_GEMINI_MODEL for this call. */
+  model?: string;
   messages: ChatTurn[];
   schema: S;
   effort?: Effort;
@@ -58,7 +60,7 @@ export async function callStructured<S extends z.ZodType>(
   call: StructuredCall<S>,
 ): Promise<AiResult<{ data: z.infer<S>; text: string }>> {
   if (!isAiConfigured()) return { ok: false, reason: "unconfigured" };
-  const model = geminiModel();
+  const model = call.model?.trim() || geminiModel();
 
   const request = () =>
     gemini().models.generateContent({

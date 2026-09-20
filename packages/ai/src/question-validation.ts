@@ -51,6 +51,9 @@ export type ValidationOutcome =
 export async function validateQuestion(input: ValidateQuestionInput): Promise<ValidationOutcome> {
   const result = await callStructured({
     system: VALIDATION_SYSTEM,
+    // A different model from the writer keeps the review independent — and each model has its own
+    // free-tier daily quota, so long batch runs get further (QUIZBO_VALIDATION_MODEL).
+    ...(process.env.QUIZBO_VALIDATION_MODEL?.trim() ? { model: process.env.QUIZBO_VALIDATION_MODEL.trim() } : {}),
     messages: [
       {
         role: "user",

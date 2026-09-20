@@ -52,9 +52,21 @@
  *   match:found                → player    ✚ { roomCode, opponent: { name, rating } }
  *   session:active_room        → socket    ✚ { roomCode } — on connect, if the user is mid-battle.
  * ✚ = addition to the architecture.md §3 table.
+ *
+ * ── Running several instances ───────────────────────────────────────────────────────────────
+ * A room lives on the instance that created it (its owner): state and timers stay in that
+ * process. What every instance must agree on is in the BattleRegistry (registry.ts, Redis in
+ * production): room owners, each user's current room, the matchmaking queue and the matchmaker
+ * lease. Messages reach players through the Socket.io adapter (Redis adapter in production), so
+ * `io.to(socketId)` and room channels work whichever instance holds the socket. A player event
+ * for a room owned elsewhere is forwarded to the owner with `serverSideEmit("qz:forward")` and
+ * handled there exactly as if it had arrived locally. One instance at a time (the lease holder)
+ * runs matchmaking over the shared queue. With no registry/adapter given, all of this collapses to
+ * the single-instance behaviour.
  */
 import type { Server as HttpServer } from "node:http";
-import { Server, type Socket } from "socket.io";
+import { randomUUID } from "node:crypto";
+import { Server, type ServerOptions, type Socket } from "socket.io";
 import {
   applyBattleElo,
   applyBoostedAnswer,
@@ -90,13 +102,13 @@ import {
   type EloChange,
   type PublicPlayer,
   type QuestionPayload,
-  type QueueEntry,
   type RoomErrorCode,
   type RoomPhase,
   type RoundBoost,
   type Rng,
   type ServerToClientEvents,
 } from "@quizbo/core";
+import { MemoryRegistry, type BattleRegistry, type QueuedPlayer } from "./registry";
 
 export interface AuthUser {
   id: string;
@@ -159,6 +171,12 @@ export interface BattleDeps {
   now?: () => number;
   corsOrigins?: string[];
   queueTickMs?: number;
+  /** Shared room/queue state. Defaults to in-memory (a single instance). */
+  registry?: BattleRegistry;
+  /** Socket.io adapter for several instances (e.g. the Redis adapter). */
+  adapter?: ServerOptions["adapter"];
+  /** This instance's id in the registry. Defaults to a random id. */
+  instanceId?: string;
   logger?: Pick<Console, "info" | "warn" | "error">;
 }
 
@@ -166,7 +184,33 @@ interface SocketData {
   user: AuthUser;
 }
 
-type BattleServerSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
+/** Player events that belong to a room, routed to the instance that owns it. */
+type RoutedEvent = "room:join" | "room:rejoin" | "room:leave" | "answer:submit" | "boost:use" | "disconnect";
+
+interface ForwardedEvent {
+  to: string;
+  event: RoutedEvent;
+  socketId: string;
+  user: AuthUser;
+  payload: unknown;
+}
+
+interface InterServerEvents {
+  "qz:forward": (message: ForwardedEvent) => void;
+}
+
+type BattleServerSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+
+type Emit = <E extends keyof ServerToClientEvents>(event: E, ...args: Parameters<ServerToClientEvents[E]>) => void;
+
+/** A connected player as the room logic sees it: the socket may be on this instance or another. */
+interface Client {
+  id: string;
+  user: AuthUser;
+  emit: Emit;
+  join(roomChannel: string): void;
+  leave(roomChannel: string): void;
+}
 
 interface PlayerSlot {
   userId: string;
@@ -204,15 +248,6 @@ interface Room {
   timers: Partial<Record<"round" | "countdown" | "reveal" | "grace" | "cleanup", NodeJS.Timeout>>;
 }
 
-interface QueuedPlayer extends QueueEntry {
-  socketId: string;
-  name: string;
-  matchesPlayed: number;
-  subjectId: string;
-  topicId: string | null;
-  key: string;
-}
-
 /** Extra time after the visible deadline so answers sent at 0.0s aren't lost to latency. */
 const LATENCY_ALLOWANCE_MS = 400;
 const ENDED_ROOM_TTL_MS = 60_000;
@@ -231,25 +266,44 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
   const deal = deps.dealBoosts ?? dealBoosts;
   const logger = deps.logger ?? console;
 
-  const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
+  const registry = deps.registry ?? new MemoryRegistry();
+  const instanceId = deps.instanceId ?? randomUUID();
+  const tickMs = deps.queueTickMs ?? 1_000;
+
+  const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
     cors: { origin: deps.corsOrigins ?? "*" },
     // Notice silent network drops within ~10s so the reconnect grace period starts promptly.
     pingInterval: 5_000,
     pingTimeout: 5_000,
+    ...(deps.adapter ? { adapter: deps.adapter } : {}),
   });
 
+  /** Rooms this instance owns. */
   const rooms = new Map<string, Room>();
-  /** userId → roomCode for rooms that have not ended. */
-  const userRooms = new Map<string, string>();
-  /** socket.id → { roomCode, userId } so events resolve without scanning rooms. */
-  const socketIndex = new Map<string, { userId: string; roomCode: string | null }>();
-  /** userId → matchmaking entry. */
-  const queue = new Map<string, QueuedPlayer>();
+  /** Queue size at the last matchmaking tick (for /healthz). */
+  let queuedCount = 0;
 
   // ── helpers ────────────────────────────────────────────────────────────────────────────────
 
-  const fail = (socket: BattleServerSocket, code: RoomErrorCode, message: string) =>
-    socket.emit("room:error", { code, message });
+  /** A socket connected to this instance. */
+  const localClient = (socket: BattleServerSocket): Client => ({
+    id: socket.id,
+    user: socket.data.user,
+    emit: (event, ...args) => (socket.emit as (e: string, ...a: unknown[]) => boolean)(event, ...args),
+    join: (roomChannel) => void socket.join(roomChannel),
+    leave: (roomChannel) => void socket.leave(roomChannel),
+  });
+
+  /** A socket anywhere in the cluster, addressed through the adapter. */
+  const clientFor = (socketId: string, user: AuthUser): Client => ({
+    id: socketId,
+    user,
+    emit: (event, ...args) => (io.to(socketId).emit as (e: string, ...a: unknown[]) => boolean)(event, ...args),
+    join: (roomChannel) => io.in(socketId).socketsJoin(roomChannel),
+    leave: (roomChannel) => io.in(socketId).socketsLeave(roomChannel),
+  });
+
+  const fail = (client: Client, code: RoomErrorCode, message: string) => client.emit("room:error", { code, message });
 
   const emitToPlayer = <E extends keyof ServerToClientEvents>(
     player: PlayerSlot,
@@ -272,7 +326,7 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
       boosts: p.boosts,
     }));
 
-  const emitRoomState = (room: Room, target?: BattleServerSocket) => {
+  const emitRoomState = (room: Room, target?: Client) => {
     const payload = {
       roomCode: room.code,
       phase: room.phase,
@@ -325,38 +379,39 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
     if (payload) emitToPlayer(player, "question:next", payload);
   };
 
-  const uniqueRoomCode = () => {
+  /** A fresh code, reserved for this instance in the registry. */
+  const uniqueRoomCode = async () => {
     for (let attempt = 0; attempt < 20; attempt++) {
       const code = generateRoomCode(rng);
-      if (!rooms.has(code)) return code;
+      if (!rooms.has(code) && (await registry.claimRoom(code, instanceId))) return code;
     }
     throw new Error("Could not allocate a room code");
   };
 
   const deleteRoom = (room: Room) => {
     clearAllTimers(room);
-    if (rooms.get(room.code) === room) rooms.delete(room.code);
+    if (rooms.get(room.code) === room) {
+      rooms.delete(room.code);
+      void registry.releaseRoom(room.code).catch((error) => logger.error("[battle] registry release failed", error));
+    }
     for (const player of room.players) {
-      if (userRooms.get(player.userId) === room.code) userRooms.delete(player.userId);
-      if (player.socketId) {
-        const entry = socketIndex.get(player.socketId);
-        if (entry?.roomCode === room.code) entry.roomCode = null;
-      }
+      void registry.clearUserRoom(player.userId, room.code).catch((error) => logger.error("[battle] registry clear failed", error));
     }
     io.in(channel(room.code)).socketsLeave(channel(room.code));
   };
 
-  /** True (and tells the client) when the user is already in a live room. */
-  const guardBusy = (socket: BattleServerSocket, userId: string): boolean => {
-    const code = userRooms.get(userId);
+  /** True (and tells the client) when the user is already in a live room, on any instance. */
+  const guardBusy = async (client: Client): Promise<boolean> => {
+    const code = await registry.userRoom(client.user.id);
     if (!code) return false;
-    const room = rooms.get(code);
-    if (!room || room.phase === "ended") {
-      userRooms.delete(userId);
+    const local = rooms.get(code);
+    const live = local ? local.phase !== "ended" : Boolean(await registry.roomOwner(code));
+    if (!live) {
+      await registry.clearUserRoom(client.user.id, code);
       return false;
     }
-    socket.emit("session:active_room", { roomCode: code });
-    fail(socket, "ALREADY_IN_ROOM", "You're already in a battle.");
+    client.emit("session:active_room", { roomCode: code });
+    fail(client, "ALREADY_IN_ROOM", "You're already in a battle.");
     return true;
   };
 
@@ -364,7 +419,7 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
     const questions = await deps.loadQuestions(scope, rules.maxQuestions);
     if (questions.length < rules.minQuestions) return null;
     return {
-      code: uniqueRoomCode(),
+      code: await uniqueRoomCode(),
       mode,
       scope,
       label: `${scope.subjectName} · ${scope.topicName ?? "Mixed topics"}`,
@@ -383,11 +438,11 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
     };
   };
 
-  const addPlayer = (room: Room, socket: BattleServerSocket, user: AuthUser, rating: RatingSnapshot) => {
+  const addPlayer = async (room: Room, client: Client, rating: RatingSnapshot) => {
     room.players.push({
-      userId: user.id,
-      name: user.name,
-      socketId: socket.id,
+      userId: client.user.id,
+      name: client.user.name,
+      socketId: client.id,
       connected: true,
       rating,
       state: initialCombatState(rules),
@@ -398,9 +453,8 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
       boosts: [],
       roundBoost: noBoost(),
     });
-    userRooms.set(user.id, room.code);
-    socketIndex.set(socket.id, { userId: user.id, roomCode: room.code });
-    void socket.join(channel(room.code));
+    client.join(channel(room.code));
+    await registry.setUserRoom(client.user.id, room.code);
   };
 
   // ── battle flow ────────────────────────────────────────────────────────────────────────────
@@ -653,9 +707,9 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
       logger.error(`[battle] failed to persist room ${room.code}`, error);
     }
 
-    for (const player of room.players) {
-      if (userRooms.get(player.userId) === room.code) userRooms.delete(player.userId);
-    }
+    await Promise.all(room.players.map((p) => registry.clearUserRoom(p.userId, room.code))).catch((error) =>
+      logger.error("[battle] registry clear failed", error),
+    );
     io.to(channel(room.code)).emit("battle:end", {
       roomCode: room.code,
       battleId,
@@ -678,39 +732,34 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
     room.timers.cleanup = setTimeout(() => deleteRoom(room), ENDED_ROOM_TTL_MS);
   };
 
-  const rejoin = (socket: BattleServerSocket, room: Room) => {
-    const user = socket.data.user;
-    const player = room.players.find((p) => p.userId === user.id);
-    if (!player) return fail(socket, "NOT_IN_ROOM", "You're not a player in that battle.");
-    if (room.phase === "ended") return fail(socket, "ROOM_NOT_FOUND", "That battle has already finished.");
+  const rejoin = async (client: Client, room: Room) => {
+    const player = room.players.find((p) => p.userId === client.user.id);
+    if (!player) return fail(client, "NOT_IN_ROOM", "You're not a player in that battle.");
+    if (room.phase === "ended") return fail(client, "ROOM_NOT_FOUND", "That battle has already finished.");
 
-    if (player.socketId && player.socketId !== socket.id) {
-      const previous = io.sockets.sockets.get(player.socketId);
-      socketIndex.delete(player.socketId);
-      if (previous) {
-        void previous.leave(channel(room.code));
-        previous.emit("room:error", { code: "ALREADY_IN_ROOM", message: "This battle continued in another tab." });
-      }
+    if (player.socketId && player.socketId !== client.id) {
+      const previous = clientFor(player.socketId, client.user);
+      previous.leave(channel(room.code));
+      previous.emit("room:error", { code: "ALREADY_IN_ROOM", message: "This battle continued in another tab." });
     }
-    player.socketId = socket.id;
+    player.socketId = client.id;
     player.connected = true;
-    socketIndex.set(socket.id, { userId: user.id, roomCode: room.code });
-    void socket.join(channel(room.code));
+    client.join(channel(room.code));
     clearTimer(room, "cleanup");
-    userRooms.set(user.id, room.code);
+    await registry.setUserRoom(client.user.id, room.code);
 
-    emitRoomState(room, socket);
+    emitRoomState(room, client);
     if (room.phase === "paused") {
-      resume(room, user.id);
+      resume(room, client.user.id);
       const stillMissing = room.players.find((p) => !p.connected);
       if (stillMissing) {
-        socket.emit("room:opponent_disconnected", {
+        client.emit("room:opponent_disconnected", {
           userId: stillMissing.userId,
           graceMs: Math.max(0, room.graceEndsAt - now()),
         });
       }
     } else if (room.phase === "countdown") {
-      socket.emit("room:ready", {
+      client.emit("room:ready", {
         roomCode: room.code,
         players: publicPlayers(room),
         startsInMs: Math.max(0, room.countdownEndsAt - now()),
@@ -729,80 +778,280 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
 
   const queueKey = (subjectId: string, topicId: string | null) => `${subjectId}:${topicId ?? "*"}`;
 
-  const leaveQueue = (userId: string, socketId?: string) => {
-    const entry = queue.get(userId);
-    if (entry && (!socketId || entry.socketId === socketId)) queue.delete(userId);
-  };
+  const leaveQueue = (userId: string, socketId?: string) => registry.queueRemove(userId, socketId);
 
-  const emitQueueStatus = (entry: QueuedPlayer) => {
+  const emitQueueStatus = (entry: QueuedPlayer, all: QueuedPlayer[]) => {
     const waitedMs = Math.max(0, now() - entry.joinedAt);
     const band = bandFor(waitedMs);
-    let queueSize = 0;
-    for (const other of queue.values()) if (other.key === entry.key) queueSize++;
     io.to(entry.socketId).emit("queue:status", {
       subjectId: entry.subjectId,
       topicId: entry.topicId,
       waitedMs,
       band,
       nextBandInMs: nextBandInMs(waitedMs),
-      queueSize,
+      queueSize: all.filter((other) => other.key === entry.key).length,
       rating: entry.rating,
       ratingMin: entry.rating - band,
       ratingMax: entry.rating + band,
     });
   };
 
+  /** Whether a socket is still connected, on any instance. */
+  const socketAlive = async (socketId: string) => (await io.in(socketId).fetchSockets()).length > 0;
+
   const startMatchedRoom = async (x: QueuedPlayer, y: QueuedPlayer) => {
-    const requeue = (entry: QueuedPlayer) => {
-      if (io.sockets.sockets.has(entry.socketId) && !userRooms.has(entry.userId)) queue.set(entry.userId, entry);
+    const requeue = async (entry: QueuedPlayer) => {
+      if ((await socketAlive(entry.socketId)) && !(await registry.userRoom(entry.userId))) await registry.queuePut(entry);
     };
     try {
       const scope = await deps.resolveScope(x.subjectId, x.topicId);
       const room = scope ? await buildRoom("MATCHMAKING", scope) : null;
-      const socketX = io.sockets.sockets.get(x.socketId);
-      const socketY = io.sockets.sockets.get(y.socketId);
+      const clientX = clientFor(x.socketId, { id: x.userId, name: x.name });
+      const clientY = clientFor(y.socketId, { id: y.userId, name: y.name });
+      const [aliveX, aliveY] = await Promise.all([socketAlive(x.socketId), socketAlive(y.socketId)]);
       if (!room) {
-        for (const socket of [socketX, socketY]) {
-          if (socket) fail(socket, "NOT_ENOUGH_QUESTIONS", "Not enough validated questions for that topic yet.");
-        }
+        if (aliveX) fail(clientX, "NOT_ENOUGH_QUESTIONS", "Not enough validated questions for that topic yet.");
+        if (aliveY) fail(clientY, "NOT_ENOUGH_QUESTIONS", "Not enough validated questions for that topic yet.");
         return;
       }
-      if (!socketX || !socketY || userRooms.has(x.userId) || userRooms.has(y.userId)) {
-        requeue(x);
-        requeue(y);
+      const [busyX, busyY] = await Promise.all([registry.userRoom(x.userId), registry.userRoom(y.userId)]);
+      if (!aliveX || !aliveY || busyX || busyY) {
+        await registry.releaseRoom(room.code);
+        await Promise.all([requeue(x), requeue(y)]);
         return;
       }
-      addPlayer(room, socketX, { id: x.userId, name: x.name }, { rating: x.rating, matchesPlayed: x.matchesPlayed });
-      addPlayer(room, socketY, { id: y.userId, name: y.name }, { rating: y.rating, matchesPlayed: y.matchesPlayed });
       rooms.set(room.code, room);
-      socketX.emit("match:found", { roomCode: room.code, opponent: { name: y.name, rating: y.rating } });
-      socketY.emit("match:found", { roomCode: room.code, opponent: { name: x.name, rating: x.rating } });
+      await addPlayer(room, clientX, { rating: x.rating, matchesPlayed: x.matchesPlayed });
+      await addPlayer(room, clientY, { rating: y.rating, matchesPlayed: y.matchesPlayed });
+      clientX.emit("match:found", { roomCode: room.code, opponent: { name: y.name, rating: y.rating } });
+      clientY.emit("match:found", { roomCode: room.code, opponent: { name: x.name, rating: x.rating } });
       startCountdown(room);
     } catch (error) {
       logger.error("[battle] failed to start matched room", error);
-      requeue(x);
-      requeue(y);
+      await Promise.all([requeue(x), requeue(y)]).catch(() => {});
     }
   };
 
-  const matchTick = () => {
-    const groups = new Map<string, QueuedPlayer[]>();
-    for (const entry of queue.values()) {
-      const list = groups.get(entry.key) ?? [];
-      list.push(entry);
-      groups.set(entry.key, list);
-    }
-    for (const entries of groups.values()) {
-      for (const [x, y] of findMatches(entries, now()) as Array<[QueuedPlayer, QueuedPlayer]>) {
-        queue.delete(x.userId);
-        queue.delete(y.userId);
-        void startMatchedRoom(x, y);
+  /** Every N ticks the matchmaker drops queue entries whose sockets are gone (e.g. a crashed instance). */
+  const PRUNE_EVERY = 10;
+  let ticks = 0;
+  let ticking = false;
+
+  const matchTick = async () => {
+    if (ticking) return;
+    ticking = true;
+    try {
+      // Only the lease holder matches, so two instances never pair the same player twice.
+      if (!(await registry.lead(instanceId, tickMs * 3))) return;
+      let entries = await registry.queueAll();
+      if (++ticks % PRUNE_EVERY === 0) {
+        const alive = await Promise.all(entries.map((e) => socketAlive(e.socketId)));
+        const dead = entries.filter((_, i) => !alive[i]);
+        await Promise.all(dead.map((e) => registry.queueRemove(e.userId, e.socketId)));
+        entries = entries.filter((_, i) => alive[i]);
       }
+      queuedCount = entries.length;
+
+      const groups = new Map<string, QueuedPlayer[]>();
+      for (const entry of entries) {
+        const list = groups.get(entry.key) ?? [];
+        list.push(entry);
+        groups.set(entry.key, list);
+      }
+      const matched = new Set<string>();
+      for (const group of groups.values()) {
+        for (const [x, y] of findMatches(group, now()) as Array<[QueuedPlayer, QueuedPlayer]>) {
+          await Promise.all([registry.queueRemove(x.userId), registry.queueRemove(y.userId)]);
+          matched.add(x.userId);
+          matched.add(y.userId);
+          void startMatchedRoom(x, y);
+        }
+      }
+      const waiting = entries.filter((e) => !matched.has(e.userId));
+      for (const entry of waiting) emitQueueStatus(entry, waiting);
+    } catch (error) {
+      logger.error("[battle] matchmaking tick failed", error);
+    } finally {
+      ticking = false;
     }
-    for (const entry of queue.values()) emitQueueStatus(entry);
   };
 
-  const tick = setInterval(matchTick, deps.queueTickMs ?? 1_000);
+  const tick = setInterval(() => void matchTick(), tickMs);
+
+  /** Keeps this instance's rooms and user links alive in the registry (they expire if it dies). */
+  const heartbeat = setInterval(() => {
+    const live = [...rooms.values()].filter((r) => r.phase !== "ended");
+    void registry
+      .refresh(
+        instanceId,
+        live.map((r) => r.code),
+        live.flatMap((r) => r.players.map((p) => p.userId)),
+      )
+      .catch((error) => logger.error("[battle] registry heartbeat failed", error));
+  }, 20_000);
+  heartbeat.unref?.();
+
+  // ── room events (run on the instance that owns the room) ───────────────────────────────────
+
+  const roomHandlers: Record<RoutedEvent, (client: Client, payload: unknown, code: string | null) => Promise<void> | void> = {
+    async "room:join"(client, _payload, code) {
+      if (!code) return void fail(client, "INVALID_PAYLOAD", "Room codes are five letters and numbers.");
+      const room = rooms.get(code);
+      if (!room || room.phase === "ended") return void fail(client, "ROOM_NOT_FOUND", "No open room with that code.");
+      if (room.players.some((p) => p.userId === client.user.id)) return void (await rejoin(client, room));
+      if (room.players.length >= 2 || room.phase !== "waiting") {
+        return void fail(client, "ROOM_FULL", "That room already has two players.");
+      }
+      if (await guardBusy(client)) return;
+      await leaveQueue(client.user.id);
+      const rating = await deps.loadRating(client.user.id, room.scope.subjectId);
+      if (rooms.get(code) !== room || room.players.length >= 2 || room.phase !== "waiting") {
+        return void fail(client, "ROOM_FULL", "That room already has two players.");
+      }
+      if (await guardBusy(client)) return;
+      await addPlayer(room, client, rating);
+      emitRoomState(room);
+      startCountdown(room);
+    },
+
+    async "room:rejoin"(client, _payload, code) {
+      const room = code ? rooms.get(code) : undefined;
+      if (!room) return void fail(client, "ROOM_NOT_FOUND", "That battle is no longer running.");
+      await rejoin(client, room);
+    },
+
+    async "room:leave"(client, _payload, code) {
+      const room = code ? rooms.get(code) : undefined;
+      const player = room?.players.find((p) => p.userId === client.user.id);
+      if (!room || !player) return;
+      if (room.phase === "waiting") {
+        room.players = room.players.filter((p) => p !== player);
+        await registry.clearUserRoom(client.user.id, room.code);
+        client.leave(channel(room.code));
+        if (room.players.length === 0) deleteRoom(room);
+        else emitRoomState(room);
+        return;
+      }
+      if (room.phase === "ended") return;
+      const opponent = opponentOf(room, player);
+      if (opponent) void endBattle(room, "opponent_forfeit", opponent.userId);
+    },
+
+    "answer:submit"(client, payload, code) {
+      const room = code ? rooms.get(code) : undefined;
+      const player = room?.players.find((p) => p.userId === client.user.id);
+      if (!room || !player || player.socketId !== client.id) return void fail(client, "NOT_IN_ROOM", "You're not in a battle.");
+      if (!isRecord(payload) || typeof payload.roomCode !== "string" || normalizeRoomCode(payload.roomCode) !== room.code) {
+        return void fail(client, "NOT_IN_ROOM", "That answer was for a different room.");
+      }
+      const optionId = payload.optionId;
+      if (typeof optionId !== "number" || !Number.isInteger(optionId) || optionId < 0 || optionId > 3) {
+        return void fail(client, "INVALID_PAYLOAD", "Pick one of the four options.");
+      }
+      if (room.phase !== "active" || room.roundClosed || player.roundAnswer) {
+        return void fail(client, "ROUND_CLOSED", "That question is closed.");
+      }
+      const question = currentQuestion(room, player);
+      if (!question) return void fail(client, "ROUND_CLOSED", "That question is closed.");
+      const elapsed = now() - room.roundStartedAt;
+      const window = rules.timeLimitMs + player.roundBoost.extraMs;
+      if (elapsed > window + LATENCY_ALLOWANCE_MS) return void fail(client, "ROUND_CLOSED", "That question is closed.");
+      const timeTakenMs = clampAnswerTime(elapsed, { ...rules, timeLimitMs: window });
+      resolveAnswer(room, player, question, { optionId, timeTakenMs });
+      afterAnswers(room);
+      if (room.phase === "active" && !room.roundClosed) scheduleRoundTimer(room);
+    },
+
+    "boost:use"(client, payload, code) {
+      const room = code ? rooms.get(code) : undefined;
+      const player = room?.players.find((p) => p.userId === client.user.id);
+      if (!room || !player || player.socketId !== client.id) return void fail(client, "NOT_IN_ROOM", "You're not in a battle.");
+      if (!isRecord(payload) || typeof payload.roomCode !== "string" || normalizeRoomCode(payload.roomCode) !== room.code) {
+        return void fail(client, "NOT_IN_ROOM", "That boost was for a different room.");
+      }
+      const boostId = payload.boostId;
+      const slot = isBoostId(boostId) ? player.boosts.find((b) => b.id === boostId) : undefined;
+      if (!isBoostId(boostId) || !slot || slot.state !== "ready") {
+        return void fail(client, "BOOST_UNAVAILABLE", "That boost isn't in your hand.");
+      }
+      const question = currentQuestion(room, player);
+      if (room.phase !== "active" || room.roundClosed || player.roundAnswer || !question) {
+        return void fail(client, "BOOST_UNAVAILABLE", "Boosts can only be used before you answer.");
+      }
+      if (player.roundBoost.used) return void fail(client, "BOOST_UNAVAILABLE", "One boost per question.");
+      if (now() > deadlineOf(room, player)) return void fail(client, "BOOST_UNAVAILABLE", "Out of time for that one.");
+
+      const kind = BOOSTS[boostId].kind;
+      player.boosts = player.boosts.map((b) => (b.id === boostId ? { ...b, state: kind === "armed" ? "armed" : "spent" } : b));
+      const roundBoost: RoundBoost = { ...player.roundBoost, used: boostId };
+      if (boostId === "medkit") player.state = medkit(player.state, rules);
+      if (boostId === "fifty") roundBoost.hiddenOptionIds = fiftyFifty(question.correctIndex, question.options.length, rng);
+      if (boostId === "overclock") roundBoost.overclock = true;
+      if (boostId === "warp") roundBoost.extraMs = BOOST_TUNING.warpMs;
+      player.roundBoost = roundBoost;
+      if (boostId === "warp") scheduleRoundTimer(room);
+
+      emitToPlayer(player, "boost:applied", { round: room.round + 1, boost: roundBoost });
+      io.to(channel(room.code)).emit("boost:used", {
+        userId: player.userId,
+        boostId,
+        round: room.round + 1,
+        players: publicPlayers(room),
+      });
+    },
+
+    disconnect(client, _payload, code) {
+      const room = code ? rooms.get(code) : undefined;
+      const player = room?.players.find((p) => p.userId === client.user.id);
+      if (!room || !player || player.socketId !== client.id) return;
+      player.connected = false;
+      player.socketId = null;
+      if (room.phase === "waiting") {
+        emitRoomState(room);
+        if (room.players.every((p) => !p.connected)) {
+          room.timers.cleanup = setTimeout(() => deleteRoom(room), rules.reconnectGraceMs * 3);
+        }
+        return;
+      }
+      if (room.phase !== "ended") pause(room, player.userId);
+    },
+  };
+
+  const runSafely = async (client: Client, work: () => Promise<void> | void) => {
+    try {
+      await work();
+    } catch (error) {
+      logger.error("[battle] handler error", error);
+      fail(client, "SERVER_ERROR", "Something went wrong. Try again.");
+    }
+  };
+
+  /** Runs a room event here if this instance owns the room, otherwise hands it to the owner. */
+  const route = async (event: RoutedEvent, client: Client, payload: unknown) => {
+    const code =
+      event === "room:join" || event === "room:rejoin"
+        ? isRecord(payload) && typeof payload.roomCode === "string"
+          ? normalizeRoomCode(payload.roomCode)
+          : null
+        : await registry.userRoom(client.user.id);
+    const owner = !code || rooms.has(code) ? instanceId : await registry.roomOwner(code);
+    if (!owner || owner === instanceId) return roomHandlers[event](client, payload, code);
+    io.serverSideEmit("qz:forward", { to: owner, event, socketId: client.id, user: client.user, payload });
+  };
+
+  io.on("qz:forward", (message) => {
+    if (message.to !== instanceId) return;
+    const client = clientFor(message.socketId, message.user);
+    void runSafely(client, async () => {
+      const code =
+        message.event === "room:join" || message.event === "room:rejoin"
+          ? isRecord(message.payload) && typeof message.payload.roomCode === "string"
+            ? normalizeRoomCode(message.payload.roomCode)
+            : null
+          : await registry.userRoom(message.user.id);
+      await roomHandlers[message.event](client, message.payload, code);
+    });
+  });
 
   // ── sockets ────────────────────────────────────────────────────────────────────────────────
 
@@ -816,38 +1065,40 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
 
   io.on("connection", (socket) => {
     const user = socket.data.user;
-    socketIndex.set(socket.id, { userId: user.id, roomCode: null });
+    const client = localClient(socket);
 
-    const activeCode = userRooms.get(user.id);
-    if (activeCode && rooms.get(activeCode)?.phase !== "ended") socket.emit("session:active_room", { roomCode: activeCode });
+    void (async () => {
+      const code = await registry.userRoom(user.id);
+      if (!code) return;
+      const local = rooms.get(code);
+      const live = local ? local.phase !== "ended" : Boolean(await registry.roomOwner(code));
+      if (live) client.emit("session:active_room", { roomCode: code });
+    })().catch((error) => logger.error("[battle] active-room lookup failed", error));
 
     const guarded =
       <A extends unknown[]>(handler: (...args: A) => Promise<void> | void) =>
-      async (...args: A) => {
-        try {
-          await handler(...args);
-        } catch (error) {
-          logger.error("[battle] handler error", error);
-          fail(socket, "SERVER_ERROR", "Something went wrong. Try again.");
-        }
-      };
+      (...args: A) =>
+        void runSafely(client, () => handler(...args));
 
     socket.on(
       "room:create",
       guarded(async (payload) => {
         if (!isRecord(payload) || !isId(payload.subjectId) || (payload.topicId != null && !isId(payload.topicId))) {
-          return void fail(socket, "INVALID_PAYLOAD", "Pick a subject to battle in.");
+          return void fail(client, "INVALID_PAYLOAD", "Pick a subject to battle in.");
         }
-        if (guardBusy(socket, user.id)) return;
-        leaveQueue(user.id);
+        if (await guardBusy(client)) return;
+        await leaveQueue(user.id);
         const scope = await deps.resolveScope(payload.subjectId, payload.topicId ?? null);
-        if (!scope) return void fail(socket, "INVALID_PAYLOAD", "That subject or topic doesn't exist.");
+        if (!scope) return void fail(client, "INVALID_PAYLOAD", "That subject or topic doesn't exist.");
         const [room, rating] = await Promise.all([buildRoom("INVITE", scope), deps.loadRating(user.id, scope.subjectId)]);
-        if (!room) return void fail(socket, "NOT_ENOUGH_QUESTIONS", "Not enough validated questions for that topic yet.");
-        if (guardBusy(socket, user.id)) return;
-        addPlayer(room, socket, user, rating);
+        if (!room) return void fail(client, "NOT_ENOUGH_QUESTIONS", "Not enough validated questions for that topic yet.");
+        if (await guardBusy(client)) {
+          await registry.releaseRoom(room.code);
+          return;
+        }
         rooms.set(room.code, room);
-        socket.emit("room:created", {
+        await addPlayer(room, client, rating);
+        client.emit("room:created", {
           roomCode: room.code,
           subjectId: scope.subjectId,
           topicId: scope.topicId,
@@ -857,148 +1108,27 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
       }),
     );
 
-    socket.on(
-      "room:join",
-      guarded(async (payload) => {
-        const code = isRecord(payload) && typeof payload.roomCode === "string" ? normalizeRoomCode(payload.roomCode) : null;
-        if (!code) return void fail(socket, "INVALID_PAYLOAD", "Room codes are five letters and numbers.");
-        const room = rooms.get(code);
-        if (!room || room.phase === "ended") return void fail(socket, "ROOM_NOT_FOUND", "No open room with that code.");
-        if (room.players.some((p) => p.userId === user.id)) return void rejoin(socket, room);
-        if (room.players.length >= 2 || room.phase !== "waiting") {
-          return void fail(socket, "ROOM_FULL", "That room already has two players.");
-        }
-        if (guardBusy(socket, user.id)) return;
-        leaveQueue(user.id);
-        const rating = await deps.loadRating(user.id, room.scope.subjectId);
-        if (rooms.get(code) !== room || room.players.length >= 2 || room.phase !== "waiting") {
-          return void fail(socket, "ROOM_FULL", "That room already has two players.");
-        }
-        if (guardBusy(socket, user.id)) return;
-        addPlayer(room, socket, user, rating);
-        emitRoomState(room);
-        startCountdown(room);
-      }),
-    );
-
-    socket.on(
-      "room:rejoin",
-      guarded((payload) => {
-        const code = isRecord(payload) && typeof payload.roomCode === "string" ? normalizeRoomCode(payload.roomCode) : null;
-        const room = code ? rooms.get(code) : undefined;
-        if (!room) return void fail(socket, "ROOM_NOT_FOUND", "That battle is no longer running.");
-        rejoin(socket, room);
-      }),
-    );
-
-    socket.on(
-      "room:leave",
-      guarded(() => {
-        const code = socketIndex.get(socket.id)?.roomCode;
-        const room = code ? rooms.get(code) : undefined;
-        const player = room?.players.find((p) => p.userId === user.id);
-        if (!room || !player) return;
-        if (room.phase === "waiting") {
-          room.players = room.players.filter((p) => p !== player);
-          userRooms.delete(user.id);
-          socketIndex.set(socket.id, { userId: user.id, roomCode: null });
-          void socket.leave(channel(room.code));
-          if (room.players.length === 0) deleteRoom(room);
-          else emitRoomState(room);
-          return;
-        }
-        if (room.phase === "ended") return;
-        const opponent = opponentOf(room, player);
-        if (opponent) void endBattle(room, "opponent_forfeit", opponent.userId);
-      }),
-    );
-
-    socket.on(
-      "answer:submit",
-      guarded((payload) => {
-        const code = socketIndex.get(socket.id)?.roomCode;
-        const room = code ? rooms.get(code) : undefined;
-        const player = room?.players.find((p) => p.userId === user.id);
-        if (!room || !player || player.socketId !== socket.id) return void fail(socket, "NOT_IN_ROOM", "You're not in a battle.");
-        if (!isRecord(payload) || typeof payload.roomCode !== "string" || normalizeRoomCode(payload.roomCode) !== room.code) {
-          return void fail(socket, "NOT_IN_ROOM", "That answer was for a different room.");
-        }
-        const optionId = payload.optionId;
-        if (typeof optionId !== "number" || !Number.isInteger(optionId) || optionId < 0 || optionId > 3) {
-          return void fail(socket, "INVALID_PAYLOAD", "Pick one of the four options.");
-        }
-        if (room.phase !== "active" || room.roundClosed || player.roundAnswer) {
-          return void fail(socket, "ROUND_CLOSED", "That question is closed.");
-        }
-        const question = currentQuestion(room, player);
-        if (!question) return void fail(socket, "ROUND_CLOSED", "That question is closed.");
-        const elapsed = now() - room.roundStartedAt;
-        const window = rules.timeLimitMs + player.roundBoost.extraMs;
-        if (elapsed > window + LATENCY_ALLOWANCE_MS) return void fail(socket, "ROUND_CLOSED", "That question is closed.");
-        const timeTakenMs = clampAnswerTime(elapsed, { ...rules, timeLimitMs: window });
-        resolveAnswer(room, player, question, { optionId, timeTakenMs });
-        afterAnswers(room);
-        if (room.phase === "active" && !room.roundClosed) scheduleRoundTimer(room);
-      }),
-    );
-
-    socket.on(
-      "boost:use",
-      guarded((payload) => {
-        const code = socketIndex.get(socket.id)?.roomCode;
-        const room = code ? rooms.get(code) : undefined;
-        const player = room?.players.find((p) => p.userId === user.id);
-        if (!room || !player || player.socketId !== socket.id) return void fail(socket, "NOT_IN_ROOM", "You're not in a battle.");
-        if (!isRecord(payload) || typeof payload.roomCode !== "string" || normalizeRoomCode(payload.roomCode) !== room.code) {
-          return void fail(socket, "NOT_IN_ROOM", "That boost was for a different room.");
-        }
-        const boostId = payload.boostId;
-        const slot = isBoostId(boostId) ? player.boosts.find((b) => b.id === boostId) : undefined;
-        if (!isBoostId(boostId) || !slot || slot.state !== "ready") {
-          return void fail(socket, "BOOST_UNAVAILABLE", "That boost isn't in your hand.");
-        }
-        const question = currentQuestion(room, player);
-        if (room.phase !== "active" || room.roundClosed || player.roundAnswer || !question) {
-          return void fail(socket, "BOOST_UNAVAILABLE", "Boosts can only be used before you answer.");
-        }
-        if (player.roundBoost.used) return void fail(socket, "BOOST_UNAVAILABLE", "One boost per question.");
-        if (now() > deadlineOf(room, player)) return void fail(socket, "BOOST_UNAVAILABLE", "Out of time for that one.");
-
-        const kind = BOOSTS[boostId].kind;
-        player.boosts = player.boosts.map((b) => (b.id === boostId ? { ...b, state: kind === "armed" ? "armed" : "spent" } : b));
-        const roundBoost: RoundBoost = { ...player.roundBoost, used: boostId };
-        if (boostId === "medkit") player.state = medkit(player.state, rules);
-        if (boostId === "fifty") roundBoost.hiddenOptionIds = fiftyFifty(question.correctIndex, question.options.length, rng);
-        if (boostId === "overclock") roundBoost.overclock = true;
-        if (boostId === "warp") roundBoost.extraMs = BOOST_TUNING.warpMs;
-        player.roundBoost = roundBoost;
-        if (boostId === "warp") scheduleRoundTimer(room);
-
-        emitToPlayer(player, "boost:applied", { round: room.round + 1, boost: roundBoost });
-        io.to(channel(room.code)).emit("boost:used", {
-          userId: player.userId,
-          boostId,
-          round: room.round + 1,
-          players: publicPlayers(room),
-        });
-      }),
-    );
+    socket.on("room:join", guarded((payload) => route("room:join", client, payload)));
+    socket.on("room:rejoin", guarded((payload) => route("room:rejoin", client, payload)));
+    socket.on("room:leave", guarded((payload) => route("room:leave", client, payload)));
+    socket.on("answer:submit", guarded((payload) => route("answer:submit", client, payload)));
+    socket.on("boost:use", guarded((payload) => route("boost:use", client, payload)));
 
     socket.on(
       "queue:join",
       guarded(async (payload) => {
         if (!isRecord(payload) || !isId(payload.subjectId) || (payload.topicId != null && !isId(payload.topicId))) {
-          return void fail(socket, "INVALID_PAYLOAD", "Pick a subject to battle in.");
+          return void fail(client, "INVALID_PAYLOAD", "Pick a subject to battle in.");
         }
-        if (guardBusy(socket, user.id)) return;
+        if (await guardBusy(client)) return;
         const scope = await deps.resolveScope(payload.subjectId, payload.topicId ?? null);
-        if (!scope) return void fail(socket, "INVALID_PAYLOAD", "That subject or topic doesn't exist.");
+        if (!scope) return void fail(client, "INVALID_PAYLOAD", "That subject or topic doesn't exist.");
         const [count, rating] = await Promise.all([deps.countQuestions(scope), deps.loadRating(user.id, scope.subjectId)]);
         if (count < rules.minQuestions) {
-          return void fail(socket, "NOT_ENOUGH_QUESTIONS", "Not enough validated questions for that topic yet.");
+          return void fail(client, "NOT_ENOUGH_QUESTIONS", "Not enough validated questions for that topic yet.");
         }
-        if (guardBusy(socket, user.id) || !socket.connected) return;
-        const existing = queue.get(user.id);
+        if ((await guardBusy(client)) || !socket.connected) return;
+        const existing = await registry.queueGet(user.id);
         const key = queueKey(scope.subjectId, scope.topicId);
         const entry: QueuedPlayer = {
           userId: user.id,
@@ -1011,8 +1141,8 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
           topicId: scope.topicId,
           key,
         };
-        queue.set(user.id, entry);
-        emitQueueStatus(entry);
+        await registry.queuePut(entry);
+        emitQueueStatus(entry, await registry.queueAll());
       }),
     );
 
@@ -1022,30 +1152,20 @@ export function createBattleServer(httpServer: HttpServer, deps: BattleDeps) {
     );
 
     socket.on("disconnect", () => {
-      leaveQueue(user.id, socket.id);
-      const entry = socketIndex.get(socket.id);
-      socketIndex.delete(socket.id);
-      const room = entry?.roomCode ? rooms.get(entry.roomCode) : undefined;
-      const player = room?.players.find((p) => p.userId === user.id);
-      if (!room || !player || player.socketId !== socket.id) return;
-      player.connected = false;
-      player.socketId = null;
-      if (room.phase === "waiting") {
-        emitRoomState(room);
-        if (room.players.every((p) => !p.connected)) {
-          room.timers.cleanup = setTimeout(() => deleteRoom(room), rules.reconnectGraceMs * 3);
-        }
-        return;
-      }
-      if (room.phase !== "ended") pause(room, player.userId);
+      void (async () => {
+        await leaveQueue(user.id, socket.id);
+        await route("disconnect", client, null);
+      })().catch((error) => logger.error("[battle] disconnect handling failed", error));
     });
   });
 
   return {
     io,
-    stats: () => ({ rooms: rooms.size, queued: queue.size }),
+    instanceId,
+    stats: () => ({ rooms: rooms.size, queued: queuedCount, instance: instanceId }),
     async close() {
       clearInterval(tick);
+      clearInterval(heartbeat);
       for (const room of rooms.values()) clearAllTimers(room);
       await io.close();
     },

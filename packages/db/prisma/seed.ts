@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { prisma } from "../src/index";
 import { mergeCurriculum } from "../src/content/jee";
+import { seedDemoPlan } from "../scripts/demo-plan";
 import { CURRICULUM, DEMO_PLAYERS, type SeedQuestion } from "./seed-data";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -105,7 +106,11 @@ async function seedDemoPlayers() {
 
 try {
   await seedCurriculum();
-  if (process.env.SEED_DEMO_DATA === "true") await seedDemoPlayers();
+  if (process.env.SEED_DEMO_DATA === "true") {
+    await seedDemoPlayers();
+    // Two upcoming tests and a fortnight of sessions, for whichever student account exists.
+    await seedDemoPlan();
+  }
 } finally {
   await prisma.$disconnect();
 }

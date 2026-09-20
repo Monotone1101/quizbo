@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { signInDemo, signInWithEmail } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 
@@ -21,11 +21,10 @@ function demoKey() {
 
 export function DemoSignInForm() {
   const [error, action, pending] = useActionState(signInDemo, null);
-  const keyRef = useRef<HTMLInputElement>(null);
+  // Controlled, so React's automatic form reset after a failed attempt can't blank it.
+  const [key, setKey] = useState("");
 
-  useEffect(() => {
-    if (keyRef.current) keyRef.current.value = demoKey();
-  }, []);
+  useEffect(() => setKey(demoKey()), []);
 
   return (
     <form action={action} className="flex flex-col gap-2">
@@ -38,7 +37,7 @@ export function DemoSignInForm() {
           {pending ? "…" : "CONTINUE"}
         </Button>
       </div>
-      <input ref={keyRef} type="hidden" name="key" />
+      <input type="hidden" name="key" value={key} readOnly />
       {error && <p className="m-0 text-[12px] text-accent-700">{error}</p>}
       <p className="m-0 text-[11px] text-neutral-600">Demo accounts stay on this browser. Use Google or email to keep progress across devices.</p>
     </form>

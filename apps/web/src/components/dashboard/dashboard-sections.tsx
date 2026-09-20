@@ -2,6 +2,7 @@ import Link from "next/link";
 import { OpenCoach } from "@/components/shell/shell-context";
 import { Blueprint } from "@/components/ui/blueprint";
 import { ButtonLink } from "@/components/ui/button";
+import { HomeGrid } from "@/components/ui/home-grid";
 import type { ResultChip } from "@/lib/data/dashboard";
 import { cn } from "@/lib/utils";
 import { DigitRain } from "./digit-rain";
@@ -124,11 +125,16 @@ export function QuickNotes({ notes }: { notes: Array<{ id: string; kicker: strin
         }
       />
       {notes.length === 0 ? (
-        <Blueprint className="qz-hatch flex flex-col items-center gap-3 p-[34px] text-center">
-          <div className="bg-bg px-4 py-2.5">
-            <div className="qz-lab text-neutral-600">Empty state</div>
-            <div className="mt-1 font-heading text-[24px] font-semibold">Nothing to summarise yet</div>
-            <p className="mx-auto mb-3 mt-1.5 max-w-[420px] text-[13px] text-neutral-700">
+        <Blueprint className="flex flex-col items-center gap-3 overflow-hidden p-[34px] text-center">
+          <HomeGrid />
+          <div className="relative px-4 py-2.5">
+            <div className="qz-lab text-neutral-600" data-grid-avoid>
+              Empty state
+            </div>
+            <div className="mt-1 font-heading text-[24px] font-semibold" data-grid-avoid>
+              Nothing to summarise yet
+            </div>
+            <p className="mx-auto mb-3 mt-1.5 max-w-[420px] text-[13px] text-neutral-700" data-grid-avoid>
               Drop a chapter, a PDF or your class notes in the coach panel. It comes back as short cards you can skim before a match.
             </p>
             <OpenCoach as="button" className="btn btn-primary">
@@ -146,8 +152,9 @@ export function QuickNotes({ notes }: { notes: Array<{ id: string; kicker: strin
               <div className="card-meta">{note.meta}</div>
             </Blueprint>
           ))}
-          <OpenCoach as="button" className="blueprint qz-hatch grid min-h-[170px] cursor-pointer place-items-center text-center">
-            <span className="bg-bg px-3 py-2">
+          <OpenCoach as="button" className="blueprint relative grid min-h-[170px] cursor-pointer place-items-center overflow-hidden text-center">
+            <HomeGrid />
+            <span className="relative px-3 py-2" data-grid-avoid>
               <span className="qz-lab block text-neutral-600">Add source</span>
               <span className="mt-1 block max-w-[150px] text-[12px] text-neutral-700">Upload a chapter and the coach writes the card</span>
             </span>
@@ -235,8 +242,9 @@ export function RecentBattles({
 export function TodayPlan({ sessions }: { sessions: Array<{ id: string; topic: string; minutes: number; status: string; kind: string }> }) {
   const pending = sessions.filter((s) => s.status === "PENDING");
   return (
-    <Blueprint corners="diagonal" className="flex flex-wrap items-center gap-4 border-l-2 border-l-accent px-4 py-3.5">
-      <div className="min-w-0">
+    <Blueprint corners="diagonal" className="flex flex-wrap items-center gap-4 overflow-hidden border-l-2 border-l-accent px-4 py-3.5">
+      <HomeGrid />
+      <div className="relative min-w-0" data-grid-avoid>
         <div className="qz-lab text-accent-700">Today&apos;s plan</div>
         <div className="mt-0.5 text-[14px]">
           {sessions.length === 0

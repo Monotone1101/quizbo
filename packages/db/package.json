@@ -12,9 +12,11 @@
     "generate": "prisma generate",
     "build": "prisma generate",
     "local": "node scripts/local-db.mjs",
+    "local:stop": "node scripts/local-db.mjs --stop",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "seed": "tsx prisma/seed.ts",
+    "demo:plan": "tsx scripts/demo-plan.ts",
     "resources:check": "tsx scripts/check-resources.ts",
     "studio": "prisma studio",
     "typecheck": "tsc -p tsconfig.json"
@@ -28,6 +30,7 @@
     "prisma": "7.10.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "embedded-postgres": "^17.10.0-beta.17"
   }
 }
