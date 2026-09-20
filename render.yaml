@@ -1,40 +1,46 @@
-# Render Blueprint — the whole stack on Render in one click (Dashboard → New → Blueprint).
-# Before the first deploy, fill the `sync: false` values when Render prompts:
-#   NEXT_PUBLIC_BATTLE_URL  https://quizbo-battle.onrender.com   (read at web build time)
+# Render Blueprint — the whole stack in one go (Dashboard → New → Blueprint → pick this repo).
+#
+# Render prompts for three values on the first deploy:
+#   NEXT_PUBLIC_BATTLE_URL  https://quizbo-battle.onrender.com   (read at web BUILD time)
 #   WEB_ORIGIN              https://quizbo-web.onrender.com
 #   GEMINI_API_KEY          your Google AI Studio key (optional — the app degrades gracefully without it)
-# See DEPLOY.md for custom domains and Google/email sign-in.
+# Guess the two URLs from the service names below; Render assigns exactly those unless the name is taken.
+#
+# Plans: `free` everywhere, so this costs nothing to try. Free services sleep after 15 minutes idle and
+# take ~30 s to wake, and a free database is deleted after 30 days. For a real launch change both web
+# services to `plan: starter` and the database to `plan: basic-256mb`.
+#
+# See DEPLOY.md for custom domains, Google/email sign-in, and the optional worker.
 
 envVarGroups:
   - name: quizbo-shared
     envVars:
+      # Signed battle tokens: the web app signs, the battle service verifies. Both read it from here,
+      # so the two always agree.
       - key: BATTLE_JWT_SECRET
         generateValue: true
       - key: NODE_VERSION
         value: "22"
+      # Newer models are often "busy" (503) on the free tier; this one answers reliably.
       - key: QUIZBO_GEMINI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-3.6-flash
 
 databases:
   - name: quizbo-db
     databaseName: quizbo
     user: quizbo
-    plan: basic-256mb
+    plan: free
 
 services:
-  - type: keyvalue
-    name: quizbo-redis
-    plan: free
-    maxmemoryPolicy: noeviction
-    ipAllowList: []
-
   - type: web
     name: quizbo-web
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci && npm run build -w @quizbo/web
-    preDeployCommand: npm run migrate:deploy -w @quizbo/db && npm run seed -w @quizbo/db
-    startCommand: npm run start -w @quizbo/web
+    # Migrations and the seed run here rather than in a preDeployCommand, which needs a paid plan.
+    # Both are idempotent: `migrate deploy` skips applied migrations and the seed upserts, so a restart
+    # costs a few seconds and changes nothing.
+    startCommand: npm run migrate:deploy -w @quizbo/db && npm run seed -w @quizbo/db && npm run start -w @quizbo/web
     healthCheckPath: /signin
     envVars:
       - fromGroup: quizbo-shared
@@ -46,6 +52,7 @@ services:
         value: "true"
       - key: AUTH_DEMO_LOGIN
         value: "true"
+      # Inlined into the browser bundle at build time — changing it needs a rebuild, not just a restart.
       - key: NEXT_PUBLIC_BATTLE_URL
         sync: false
       - key: GEMINI_API_KEY
@@ -54,11 +61,11 @@ services:
   - type: web
     name: quizbo-battle
     runtime: node
-    plan: starter
-    # With BATTLE_REDIS_URL set, instances share rooms and the queue through Redis, so this can go
-    # above 1 (see DEPLOY.md, "Scaling the battle service").
-    numInstances: 1
-    # --omit=dev skips build-only packages (including the local PostgreSQL used in development).
+    plan: free
+    # One instance keeps rooms and the queue in memory. To run several, move to a paid plan, set
+    # BATTLE_REDIS_URL (see the commented Key Value block below) and add `numInstances` — see
+    # DEPLOY.md, "Scaling the battle service".
+    # --omit=dev skips build-only packages, including the local PostgreSQL used in development.
     buildCommand: npm ci --omit=dev
     startCommand: npm run start -w @quizbo/battle
     healthCheckPath: /healthz
@@ -66,22 +73,38 @@ services:
       - fromGroup: quizbo-shared
       - key: DATABASE_URL
         fromDatabase: { name: quizbo-db, property: connectionString }
+      # Origins allowed to open a socket. Add your custom domain here as a second, comma-separated value.
       - key: WEB_ORIGIN
         sync: false
-      - key: BATTLE_REDIS_URL
-        fromService: { type: keyvalue, name: quizbo-redis, property: connectionString }
 
-  - type: worker
-    name: quizbo-worker
-    runtime: node
-    plan: starter
-    buildCommand: npm ci --omit=dev
-    startCommand: npm run start -w @quizbo/worker
-    envVars:
-      - fromGroup: quizbo-shared
-      - key: DATABASE_URL
-        fromDatabase: { name: quizbo-db, property: connectionString }
-      - key: REDIS_URL
-        fromService: { type: keyvalue, name: quizbo-redis, property: connectionString }
-      - key: GEMINI_API_KEY
-        sync: false
+# ── Optional: nightly jobs and multi-instance battles ─────────────────────────────────────────────
+# Background workers and Key Value both need a paid plan, and neither is required to play. Uncomment
+# this block (and BATTLE_REDIS_URL on quizbo-battle) when you want the nightly question top-up,
+# re-planning and the AI resource finder.
+#
+#  - type: keyvalue
+#    name: quizbo-redis
+#    plan: starter
+#    maxmemoryPolicy: noeviction
+#    ipAllowList: []
+#
+#  - type: worker
+#    name: quizbo-worker
+#    runtime: node
+#    plan: starter
+#    buildCommand: npm ci --omit=dev
+#    startCommand: npm run start -w @quizbo/worker
+#    envVars:
+#      - fromGroup: quizbo-shared
+#      - key: DATABASE_URL
+#        fromDatabase: { name: quizbo-db, property: connectionString }
+#      - key: REDIS_URL
+#        fromService: { type: keyvalue, name: quizbo-redis, property: connectionString }
+#      - key: GEMINI_API_KEY
+#        sync: false
+#      # Batch jobs only. The free Gemini tier allows ~20 requests a day per model, so the blind reviewer
+#      # uses its own model (its own quota) and calls are paced.
+#      - key: QUIZBO_VALIDATION_MODEL
+#        value: gemini-3.7-flash
+#      - key: QUIZBO_AI_PACE_MS
+#        value: "6000"

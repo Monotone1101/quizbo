@@ -63,10 +63,22 @@ DATABASE_URL="<neon url>" npm run db:deploy && DATABASE_URL="<neon url>" npm run
 
 ## Option B — everything on Render
 
-`render.yaml` is a Blueprint: Postgres, Redis, web, battle (1 instance) and worker. In Render,
-**New → Blueprint**, pick the repo, then fill the prompted values:
-`NEXT_PUBLIC_BATTLE_URL` (the battle service URL), `WEB_ORIGIN` (the web URL) and
-`GEMINI_API_KEY`. Migrations and the seed run as the web service's pre-deploy command.
+`render.yaml` is a Blueprint: Postgres, the web app and the battle service, all on free plans. In
+Render, **New → Blueprint**, pick the repo, then fill the prompted values: `NEXT_PUBLIC_BATTLE_URL`
+(the battle service URL, e.g. `https://quizbo-battle.onrender.com`), `WEB_ORIGIN` (the web URL) and
+`GEMINI_API_KEY`. `BATTLE_JWT_SECRET` is generated once in a shared env var group, so both services
+get the same value. Migrations and the seed run in the web service's start command — both are
+idempotent, so restarts are cheap.
+
+Free services sleep after 15 minutes idle (the first request then waits ~30 s) and a free database is
+deleted after 30 days; switch the two services to `plan: starter` and the database to
+`plan: basic-256mb` for a real launch. The worker and Key Value blocks are commented out at the
+bottom of `render.yaml` because both need a paid plan — uncomment them for the nightly question
+top-up, re-planning and the resource finder.
+
+Don't build this repo's `Dockerfile` on Render: it has four targets, Render always builds the last
+one (`migrate`), and that image runs migrations and exits — which Render reports as
+"Application exited early". Use the Node runtime above, or Option C below.
 
 ## Option C — self-host with Docker
 
