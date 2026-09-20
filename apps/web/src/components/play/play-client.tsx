@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ScopeSubject } from "@/lib/data/battle-scopes";
 import { BattleScreen } from "./battle-screen";
 import { MatchmakingScreen } from "./matchmaking-screen";
@@ -18,7 +18,20 @@ export interface PlayClientProps {
 
 export function PlayClient({ intent, me, scopeLabel, scopes = [] }: PlayClientProps) {
   const router = useRouter();
-  const { state, answer, fireBoost, leave, requeue } = useBattle(intent);
+  const { state, answer, fireBoost, leave, requeue, startQueue } = useBattle(intent);
+  // Invite rooms and room joins start straight away; matchmaking waits for the scope to be chosen.
+  const [queuing, setQueuing] = useState(intent.kind !== "queue");
+  const start = useCallback(() => {
+    setQueuing(true);
+    startQueue();
+  }, [startQueue]);
+
+  // Nothing to choose (no battle-ready subject list): keep the old behaviour and queue on arrival.
+  // A battle already in progress — rejoined from another tab — also skips the setup step.
+  useEffect(() => {
+    if (intent.kind === "queue" && scopes.length === 0) start();
+    else if (state.roomCode) setQueuing(true);
+  }, [intent.kind, scopes.length, state.roomCode, start]);
 
   useEffect(() => {
     if (state.phase !== "ended" || !state.end?.battleId) return;
@@ -58,7 +71,9 @@ export function PlayClient({ intent, me, scopeLabel, scopes = [] }: PlayClientPr
       me={me}
       scopeLabel={scopeLabel}
       scopes={scopes}
+      queuing={queuing}
       onScopeChange={requeue}
+      onStart={start}
       onLeave={leave}
     />
   );

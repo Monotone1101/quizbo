@@ -7,6 +7,7 @@ import type { ResultChip } from "@/lib/data/dashboard";
 import { cn } from "@/lib/utils";
 import { DigitRain } from "./digit-rain";
 import { FireCard } from "./fire-card";
+import { NoteCard, type NoteCardData } from "./note-card";
 
 export function EloCard({
   subjectName,
@@ -112,7 +113,7 @@ function SectionTitle({ title, note, action }: { title: string; note?: string; a
   );
 }
 
-export function QuickNotes({ notes }: { notes: Array<{ id: string; kicker: string; title: string; body: string; meta: string }> }) {
+export function QuickNotes({ notes }: { notes: NoteCardData[] }) {
   return (
     <section>
       <SectionTitle
@@ -145,12 +146,7 @@ export function QuickNotes({ notes }: { notes: Array<{ id: string; kicker: strin
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {notes.map((note) => (
-            <Blueprint key={note.id} className="card p-4">
-              <div className="card-kicker">{note.kicker}</div>
-              <div className="card-title">{note.title}</div>
-              <p className="card-body">{note.body}</p>
-              <div className="card-meta">{note.meta}</div>
-            </Blueprint>
+            <NoteCard key={note.id} note={note} />
           ))}
           <OpenCoach as="button" className="blueprint relative grid min-h-[170px] cursor-pointer place-items-center overflow-hidden text-center">
             <HomeGrid />

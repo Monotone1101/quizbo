@@ -217,6 +217,8 @@ export function useBattle(intent: PlayIntent) {
   const roomCodeRef = useRef<string | null>(null);
   const createdRef = useRef(false);
   const intentRef = useRef(intent);
+  /** Queue intents wait for `startQueue()` so the player picks a scope before searching. */
+  const queuingRef = useRef(false);
 
   useEffect(() => {
     let socket: BattleSocket | null = null;
@@ -227,7 +229,7 @@ export function useBattle(intent: PlayIntent) {
       if (roomCodeRef.current) {
         s.emit("room:rejoin", { roomCode: roomCodeRef.current });
       } else if (current.kind === "queue") {
-        s.emit("queue:join", { subjectId: current.subjectId, topicId: current.topicId });
+        if (queuingRef.current) s.emit("queue:join", { subjectId: current.subjectId, topicId: current.topicId });
       } else if (current.kind === "create") {
         if (!createdRef.current) {
           createdRef.current = true;
@@ -362,21 +364,31 @@ export function useBattle(intent: PlayIntent) {
   );
 
   /**
-   * Switches the queue a searching player is in. The server keys queue entries by user, so a second
-   * `queue:join` replaces the first — no need to leave first. Emitted before the socket connects is
-   * fine too: `start()` reads the same ref on connect.
+   * Picks the queue: before searching it only records the choice, and while searching it switches
+   * queues on the spot. The server keys queue entries by user, so a second `queue:join` replaces the
+   * first — no need to leave first.
    */
   const requeue = useCallback((subjectId: string, topicId: string | null) => {
     const current = intentRef.current;
     if (current.kind !== "queue") return;
     if (current.subjectId === subjectId && current.topicId === topicId) return;
     intentRef.current = { kind: "queue", subjectId, topicId };
-    socketRef.current?.emit("queue:join", { subjectId, topicId });
+    if (queuingRef.current) socketRef.current?.emit("queue:join", { subjectId, topicId });
+  }, []);
+
+  /** Enters matchmaking with the scope chosen on the setup screen. */
+  const startQueue = useCallback(() => {
+    const current = intentRef.current;
+    if (current.kind !== "queue" || queuingRef.current) return;
+    queuingRef.current = true;
+    // Before the socket connects this is a no-op — `start()` emits on connect instead.
+    socketRef.current?.emit("queue:join", { subjectId: current.subjectId, topicId: current.topicId });
   }, []);
 
   const leave = useCallback(() => {
     const socket = socketRef.current;
     if (state.phase === "queue" || state.phase === "connecting" || state.phase === "error") {
+      queuingRef.current = false;
       socket?.emit("queue:leave");
       router.push("/dashboard");
       return;
@@ -390,5 +402,5 @@ export function useBattle(intent: PlayIntent) {
     router.push("/dashboard");
   }, [state.phase, state.roomCode, router]);
 
-  return { state, answer, fireBoost, leave, requeue };
+  return { state, answer, fireBoost, leave, requeue, startQueue };
 }

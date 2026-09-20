@@ -8,11 +8,10 @@ import { Corners } from "@/components/ui/blueprint";
 import type { ScopeSubject } from "@/lib/data/battle-scopes";
 import { BreathingGradient } from "./breathing-gradient";
 import { useWallClock } from "./clocks";
+import { ScopePicker } from "./scope-picker";
 import type { PlayIntent, PlayState } from "./use-battle";
 
 const WHITE_MARK = "rgba(255,255,255,.6)";
-const SELECT_CLASS =
-  "qz-lab max-w-[46vw] truncate border border-white/30 bg-white/10 px-2 py-[5px] text-white outline-none transition-colors hover:border-white/50 focus-visible:border-white/80";
 
 function formatWait(ms: number) {
   const seconds = Math.floor(ms / 1000);
@@ -25,7 +24,9 @@ export function MatchmakingScreen({
   me,
   scopeLabel,
   scopes = [],
+  queuing = true,
   onScopeChange,
+  onStart,
   onLeave,
 }: {
   state: PlayState;
@@ -33,7 +34,10 @@ export function MatchmakingScreen({
   me: { name: string; rating: number; rank: number; streak: number };
   scopeLabel: string | null;
   scopes?: ScopeSubject[];
+  /** False while the player is still choosing a queue (the setup step before searching). */
+  queuing?: boolean;
   onScopeChange?: (subjectId: string, topicId: string | null) => void;
+  onStart?: () => void;
   onLeave: () => void;
 }) {
   const now = useWallClock(state.phase === "countdown");
@@ -63,8 +67,10 @@ export function MatchmakingScreen({
   const activeTopicId = state.queue?.topicId ?? queueIntent?.topicId ?? null;
   const activeTopic = activeSubject?.topics.find((t) => t.id === activeTopicId) ?? null;
   const label = activeSubject ? `${activeSubject.name} · ${activeTopic?.name ?? "Mixed topics"}` : (scopeLabel ?? state.label ?? "Physics");
-  // Only while searching: once a match is found the scope is fixed.
-  const canPickScope = Boolean(onScopeChange) && !invite && scopes.length > 0 && (state.phase === "queue" || state.phase === "connecting");
+  // Choosing a queue before searching; once a match is found the scope is fixed.
+  const hasPicker = Boolean(onScopeChange) && !invite && scopes.length > 0 && activeSubject !== null;
+  const setup = hasPicker && !queuing && state.phase === "connecting";
+  const canPickScope = hasPicker && !setup && (state.phase === "queue" || state.phase === "connecting");
   const alone = state.phase === "queue" && queue !== null && queue.queueSize <= 1;
   const myRating = queue?.rating ?? me.rating;
 
@@ -87,37 +93,9 @@ export function MatchmakingScreen({
           <div className="font-heading text-[19px] font-semibold tracking-[.02em]">QUIZBO</div>
           <span className="qz-lab text-white/60">{invite ? "Invite room" : "Matchmaking"}</span>
           {canPickScope && activeSubject ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label="Subject to battle in"
-                className={SELECT_CLASS}
-                style={{ colorScheme: "dark" }}
-                value={activeSubject.id}
-                onChange={(event) => onScopeChange?.(event.target.value, null)}
-              >
-                {scopes.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Topic to battle in"
-                className={SELECT_CLASS}
-                style={{ colorScheme: "dark" }}
-                value={activeTopic?.id ?? ""}
-                onChange={(event) => onScopeChange?.(activeSubject.id, event.target.value || null)}
-              >
-                <option value="">Mixed topics ({activeSubject.questions})</option>
-                {activeSubject.topics.map((topic) => (
-                  <option key={topic.id} value={topic.id}>
-                    {topic.name} ({topic.questions})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <ScopePicker scopes={scopes} subject={activeSubject} topic={activeTopic} onChange={onScopeChange!} />
           ) : (
-            <span className="qz-lab text-white/60">· {label}</span>
+            !setup && <span className="qz-lab text-white/60">· {label}</span>
           )}
           <button type="button" className="btn btn-on-dark ml-auto" onClick={onLeave}>
             {state.phase === "found" || state.phase === "countdown" ? "LEAVE" : "CANCEL"}
@@ -140,17 +118,37 @@ export function MatchmakingScreen({
               <AsciiVideo />
               <div className="qz-lab absolute bottom-0 left-0 z-[2] bg-[rgba(14,21,29,.85)] px-[7px] py-[3px] text-white/80">ASCII · loop</div>
             </div>
-            <div className={`font-heading text-[22px] font-semibold tracking-[.16em] ${searching ? "qz-pulse" : ""}`} aria-live="polite">
-              {status}
-            </div>
-            <div className="h-[3px] w-full overflow-hidden bg-white/20">
-              {searching ? <div className="qz-sweep h-full w-[40%] bg-[#3e92cc]" /> : <div className="h-full w-full bg-[#3e92cc]" />}
-            </div>
-            <div className="flex min-h-[18px] flex-wrap justify-center gap-5 text-[12px] text-white/75">
-              {meta.map((item) => (
-                <span key={item}>{item}</span>
-              ))}
-            </div>
+            {setup && activeSubject ? (
+              <>
+                <div className="font-heading text-[22px] font-semibold tracking-[.16em]">CHOOSE YOUR QUEUE</div>
+                <div className="h-[3px] w-full bg-white/20" />
+                <ScopePicker variant="panel" scopes={scopes} subject={activeSubject} topic={activeTopic} onChange={onScopeChange!} />
+                <button type="button" className="btn btn-primary w-full justify-center" onClick={onStart}>
+                  FIND A MATCH
+                </button>
+                <p className="max-w-[420px] text-center text-[12px] leading-[1.5] text-white/60">
+                  You&apos;ll be paired with someone waiting in the same subject and topic. No one there?{" "}
+                  <Link href="/play/invite" className="underline underline-offset-2 hover:text-white">
+                    Invite a friend
+                  </Link>{" "}
+                  to a private room instead.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className={`font-heading text-[22px] font-semibold tracking-[.16em] ${searching ? "qz-pulse" : ""}`} aria-live="polite">
+                  {status}
+                </div>
+                <div className="h-[3px] w-full overflow-hidden bg-white/20">
+                  {searching ? <div className="qz-sweep h-full w-[40%] bg-[#3e92cc]" /> : <div className="h-full w-full bg-[#3e92cc]" />}
+                </div>
+                <div className="flex min-h-[18px] flex-wrap justify-center gap-5 text-[12px] text-white/75">
+                  {meta.map((item) => (
+                    <span key={item}>{item}</span>
+                  ))}
+                </div>
+              </>
+            )}
             {alone && (
               <p className="max-w-[420px] text-center text-[12px] leading-[1.5] text-white/60">
                 Nobody else is waiting in {label}. Two players pair only inside the same subject and topic — switch queues above, or{" "}
@@ -173,17 +171,19 @@ export function MatchmakingScreen({
             ) : (
               <>
                 <div className="font-heading text-[40px] font-semibold leading-[1.05] text-white/55">
-                  {state.phase === "waiting" ? "Waiting…" : "Matching…"}
+                  {setup ? "Nobody yet" : state.phase === "waiting" ? "Waiting…" : "Matching…"}
                 </div>
                 <div className="qz-num text-[62px] text-white/35">
                   {queue ? `${queue.ratingMin}–${queue.ratingMax}` : state.phase === "waiting" ? "——" : `${myRating - MATCHMAKING.initialBand}–${myRating + MATCHMAKING.initialBand}`}
                 </div>
                 <div className="text-[13px] text-white/70">
-                  {state.phase === "waiting"
-                    ? "Starts as soon as they join"
-                    : queue?.nextBandInMs === null
-                      ? "Band at maximum — closest player after 60s"
-                      : "Band widens +50 every 5s"}
+                  {setup
+                    ? `Opponents within ±${MATCHMAKING.initialBand} to start`
+                    : state.phase === "waiting"
+                      ? "Starts as soon as they join"
+                      : queue?.nextBandInMs === null
+                        ? "Band at maximum — closest player after 60s"
+                        : "Band widens +50 every 5s"}
                 </div>
               </>
             )}
