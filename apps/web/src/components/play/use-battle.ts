@@ -361,6 +361,19 @@ export function useBattle(intent: PlayIntent) {
     [state.question, state.phase, state.picked, state.paused, state.answer, state.boostPending, state.roundBoost],
   );
 
+  /**
+   * Switches the queue a searching player is in. The server keys queue entries by user, so a second
+   * `queue:join` replaces the first — no need to leave first. Emitted before the socket connects is
+   * fine too: `start()` reads the same ref on connect.
+   */
+  const requeue = useCallback((subjectId: string, topicId: string | null) => {
+    const current = intentRef.current;
+    if (current.kind !== "queue") return;
+    if (current.subjectId === subjectId && current.topicId === topicId) return;
+    intentRef.current = { kind: "queue", subjectId, topicId };
+    socketRef.current?.emit("queue:join", { subjectId, topicId });
+  }, []);
+
   const leave = useCallback(() => {
     const socket = socketRef.current;
     if (state.phase === "queue" || state.phase === "connecting" || state.phase === "error") {
@@ -377,5 +390,5 @@ export function useBattle(intent: PlayIntent) {
     router.push("/dashboard");
   }, [state.phase, state.roomCode, router]);
 
-  return { state, answer, fireBoost, leave };
+  return { state, answer, fireBoost, leave, requeue };
 }
