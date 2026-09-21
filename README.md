@@ -97,15 +97,43 @@ flowchart LR
 
 ## 🖼️ Interface Showcase
 
-> *Add full-resolution screenshots of the key interfaces to the `docs/screenshots/` folder.*
+<div align="center">
 
-| Interface | Description & Key Elements to Capture | Screenshot Location |
-| :--- | :--- | :---: |
-| **Student Dashboard** | Weekly leaderboard rank (`#2 You (1275 ELO)`), matchmaking launchpad with countdown rules, subject switcher modal, and curated loot drops. | `![Student Dashboard](docs/screenshots/dashboard.png)` |
-| **1v1 Battle Arena** | Real-time combat HUD showing synchronized 100 HP health bars, 12s round timer countdown, streak multipliers, and tactical boost bar. | `![1v1 Battle Arena](docs/screenshots/battle_arena.png)` |
-| **Conversational Study Planner** | Natural language chat input (*"Physics midterm on 28th October..."*), extracted draft confirmation card, and generated 7-day study session calendar grid. | `![Study Planner](docs/screenshots/planner.png)` |
-| **Progress & Analytics Hub** | ELO rating trajectory chart over time per subject, Exponential Moving Average (EMA) topic mastery matrix, and weekly rhythm heatmap. | `![Progress Analytics](docs/screenshots/progress.png)` |
-| **Curated Study Library** | JEE Main syllabus browser with search filter, OpenStax / HyperPhysics verified textbook links, and one-click *"BATTLE THIS →"* action chips. | `![Curated Resources](docs/screenshots/resources.png)` |
+### 1. Landing & Authentication Hero
+![Landing & Authentication](docs/screenshots/landing.png)
+*Landing page with value proposition, feature overview, offline validation guarantee, and demo sign-in.*
+
+<br/>
+
+### 2. Student Dashboard & Arena Launchpad
+![Student Dashboard](docs/screenshots/dashboard.png)
+*Dashboard showing weekly leaderboard rank (`#2 You (1275 ELO)`), placement status, matchmaking hero card, streak counter, and loot drops.*
+
+<br/>
+
+### 3. Real-Time 1v1 Battle Arena & Matchmaking
+![1v1 Battle Arena](docs/screenshots/battle_arena.png)
+*Live battle arena showing synchronized 12-second round timer countdown, question options, 100 HP health bars, speed bonuses, and tactical boosts.*
+
+<br/>
+
+### 4. Conversational NLP Exam Planner & Calendar
+![Conversational Study Planner](docs/screenshots/planner.png)
+*Natural language exam intake chat with extracted draft confirmation card alongside the deterministic 7-day study session calendar grid.*
+
+<br/>
+
+### 5. Progress Analytics & ELO Trajectory
+![Progress Analytics](docs/screenshots/progress.png)
+*Historical ELO rating trajectory curves over time per subject, battle outcome metrics, and sub-topic mastery matrix.*
+
+<br/>
+
+### 6. Curated JEE Main Study Library
+![Curated Resources Library](docs/screenshots/resources.png)
+*128 verified textbook and concept links across 65 topics with real-time keyword search and one-click "BATTLE THIS →" match launchers.*
+
+</div>
 
 ---
 
@@ -114,9 +142,7 @@ flowchart LR
 ### ⚔️ Real-Time 1v1 Battle Arena (`apps/battle`)
 High-stakes synchronous MCQ matches designed to test conceptual speed and precision under tournament conditions.
 
-<!-- SCREENSHOT PLACEHOLDER: 1v1 Battle Arena Interface -->
-<!-- Interface to capture: Active battle round on /play with 12s timer, question prompt, 4 options, HP bars, streak indicator, and armed boost -->
-<!-- ![1v1 Battle Arena](docs/screenshots/battle_arena.png) -->
+![1v1 Battle Arena](docs/screenshots/battle_arena.png)
 
 - **12-Second Rapid Fire Rounds**: Synchronized 100 HP health bars, speed bonuses (+100 base score + bonus under 4s), and consecutive correct answer streak multipliers.
 - **Deranged Question Orders**: Both players compete in real time, but deranged question and option orders prevent screen-peeking and ensure fair rounds.
@@ -127,9 +153,7 @@ High-stakes synchronous MCQ matches designed to test conceptual speed and precis
 ### 🧠 Conversational NLP Study Planner (`packages/db`, `packages/core`, `packages/ai`)
 Turns natural language exam announcements into an optimized, constraint-aware study timetable.
 
-<!-- SCREENSHOT PLACEHOLDER: Conversational Planner & Calendar -->
-<!-- Interface to capture: /planner view showing chat intake thread with confirmed exam draft card alongside the weekly calendar grid of scheduled sessions -->
-<!-- ![Conversational Study Planner](docs/screenshots/planner.png) -->
+![Conversational Study Planner](docs/screenshots/planner.png)
 
 - **Natural Language Intake**: Students describe upcoming exams conversationally (e.g. *"Physics midterm on 28th October covering Optics and Electrostatics"*).
 - **Draft Confirmation Gate**: Google Gemini extracts subject, target date, and topics into an uncommitted draft card, giving the student full review and edit control before database creation.
@@ -138,9 +162,7 @@ Turns natural language exam announcements into an optimized, constraint-aware st
 ### 📚 Curated JEE Study Library & AI Resource Finder (`/resources`)
 A comprehensive, verified study repository aligned with the official JEE Main & Advanced syllabus.
 
-<!-- SCREENSHOT PLACEHOLDER: JEE Study Library -->
-<!-- Interface to capture: /resources view showing topic search filter ("Optics"), verified OpenStax/HyperPhysics textbook links, and "BATTLE THIS ->" buttons -->
-<!-- ![Curated Resources Library](docs/screenshots/resources.png) -->
+![Curated Resources Library](docs/screenshots/resources.png)
 
 - **128 Verified Free Resources**: Curated across 65 syllabus topics in Class 11–12 Physics, Chemistry, and Mathematics from OpenStax University Physics, HyperPhysics, NCERT textbook PDFs, and official NTA examination portals.
 - **Real-Time Search & Direct Launch**: Search topics instantly with direct *"BATTLE THIS →"* action buttons to launch targeted matchmaking lobbies for specific sub-topics.
@@ -149,10 +171,6 @@ A comprehensive, verified study repository aligned with the official JEE Main & 
 ### 🤖 Personal AI Coach & Note Ingestion (Coach Drawer)
 A contextual tutor overlay assisting students across their entire learning journey.
 
-<!-- SCREENSHOT PLACEHOLDER: AI Coach Drawer -->
-<!-- Interface to capture: Coach side drawer open over the dashboard showing study path recommendation chips and PDF/note upload target -->
-<!-- ![Personal AI Coach](docs/screenshots/coach_drawer.png) -->
-
 - **Persistent Side Drawer**: Accessible across every page via the top navigation *ASK COACH* button.
 - **Conceptual Diagnostics & Study Advice**: Explains post-battle missed questions and provides targeted study recommendations via quick prompt chips.
 - **Document & Note Processing**: Upload PDF or text notes up to 4MB; the coach extracts structured summary cards directly into saved Quick Notes.
@@ -160,9 +178,7 @@ A contextual tutor overlay assisting students across their entire learning journ
 ### 📊 Deep Analytics & Progress Tracking (`/progress`)
 Transparent visualization of competitive rating trajectory and cognitive mastery over time.
 
-<!-- SCREENSHOT PLACEHOLDER: Progress & Analytics Dashboard -->
-<!-- Interface to capture: /progress view showing ELO rating trajectory curve, total battle stats, win rate %, and sub-topic mastery matrix -->
-<!-- ![Progress & Analytics](docs/screenshots/progress.png) -->
+![Progress & Analytics](docs/screenshots/progress.png)
 
 - **ELO Rating Timeline**: Interactive SVG charts showing rating changes per subject across battle history with expandable tabular logs.
 - **Sub-Topic Mastery Matrix**: Visual breakdown of mastery percentages calculated via Exponential Moving Averages across recent battle attempts.
