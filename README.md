@@ -106,7 +106,6 @@ flowchart LR
 | **Conversational Study Planner** | Natural language chat input (*"Physics midterm on 28th October..."*), extracted draft confirmation card, and generated 7-day study session calendar grid. | `![Study Planner](docs/screenshots/planner.png)` |
 | **Progress & Analytics Hub** | ELO rating trajectory chart over time per subject, Exponential Moving Average (EMA) topic mastery matrix, and weekly rhythm heatmap. | `![Progress Analytics](docs/screenshots/progress.png)` |
 | **Curated Study Library** | JEE Main syllabus browser with search filter, OpenStax / HyperPhysics verified textbook links, and one-click *"BATTLE THIS →"* action chips. | `![Curated Resources](docs/screenshots/resources.png)` |
-| **AI Coach Drawer** | Side drawer overlay with contextual weakness diagnostics, study advice chips, and PDF/note upload dropzone. | `![AI Coach Drawer](docs/screenshots/coach_drawer.png)` |
 
 ---
 
